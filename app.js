@@ -55,7 +55,7 @@ const elements = {
 };
 
 const physics = {
-  speedScale: 0.7,
+  speedScale: 1.0,
   dragPerSecond: 1.2,
   sideDragPerSecond: 2.4,
   minForwardSpeed: 180,
@@ -200,8 +200,8 @@ function updateCurveDebug(curve) {
 function updateDebug() {
   elements.debugReleaseSpeed.textContent = state.lastReleaseSpeed.toFixed(0);
   elements.debugCurrentSpeed.textContent = state.currentSpeed.toFixed(0);
-  elements.debugReleaseKmh.textContent = ((state.lastReleaseSpeed / 2500) * 100).toFixed(1);
-  elements.debugCurrentKmh.textContent = ((state.currentSpeed / 2500) * 100).toFixed(1);
+  elements.debugReleaseKmh.textContent = ((state.lastReleaseSpeed / 4000) * 100).toFixed(1);
+  elements.debugCurrentKmh.textContent = ((state.currentSpeed / 4000) * 100).toFixed(1);
   elements.debugVelocity.textContent = `${state.velocityX.toFixed(0)} / ${state.velocityY.toFixed(0)}`;
   updateCurveDebug(state.releaseCurve);
   const historyItems = Array.from({ length: 5 }, (_, index) => state.speedHistory[index] ?? null);
