@@ -40,6 +40,8 @@ const elements = {
   pitchCall: document.getElementById("pitchCall"),
   debugReleaseSpeed: document.getElementById("debugReleaseSpeed"),
   debugCurrentSpeed: document.getElementById("debugCurrentSpeed"),
+  debugReleaseKmh: document.getElementById("debugReleaseKmh"),
+  debugCurrentKmh: document.getElementById("debugCurrentKmh"),
   debugVelocity: document.getElementById("debugVelocity"),
   debugCurve: document.getElementById("debugCurve"),
   debugCurveAcceleration: document.getElementById("debugCurveAcceleration"),
@@ -68,7 +70,7 @@ const physics = {
   rollDragPerSecond: 2.6,
   rollStopSpeed: 8,
   rollTopBand: 56,
-  curveMaxAcceleration: 1300,
+  curveMaxAcceleration: 650,
   curveMinDuration: 0.22,
   curveMaxDuration: 1.25,
   curveSpeedReference: 700,
@@ -198,6 +200,8 @@ function updateCurveDebug(curve) {
 function updateDebug() {
   elements.debugReleaseSpeed.textContent = state.lastReleaseSpeed.toFixed(0);
   elements.debugCurrentSpeed.textContent = state.currentSpeed.toFixed(0);
+  elements.debugReleaseKmh.textContent = ((state.lastReleaseSpeed / 2500) * 100).toFixed(1);
+  elements.debugCurrentKmh.textContent = ((state.currentSpeed / 2500) * 100).toFixed(1);
   elements.debugVelocity.textContent = `${state.velocityX.toFixed(0)} / ${state.velocityY.toFixed(0)}`;
   updateCurveDebug(state.releaseCurve);
   const historyItems = Array.from({ length: 5 }, (_, index) => state.speedHistory[index] ?? null);
