@@ -17,6 +17,13 @@
     <section class="screen prototype-screen is-hidden" id="prototypeScreen" aria-label="投球プロトタイプ">
       <button type="button" class="back-button" id="backButton">戻る</button>
       <div class="pitch-surface" id="pitchSurface">
+        <div class="strike-zone" id="strikeZone" aria-hidden="true"></div>
+        <div class="pitch-call" id="pitchCall">未判定</div>
+        <div class="debug-panel" aria-live="polite">
+          <p>release raw: <span id="debugReleaseSpeed">0</span></p>
+          <p>current raw: <span id="debugCurrentSpeed">0</span></p>
+          <p>vx / vy: <span id="debugVelocity">0 / 0</span></p>
+        </div>
         <div class="ball is-hidden" id="ball" aria-hidden="true"></div>
         <p class="hint" id="hintText">指を置いて位置を決めて、上にスワイプして投げる</p>
       </div>

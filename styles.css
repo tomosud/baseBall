@@ -96,6 +96,52 @@ button {
   user-select: none;
 }
 
+.strike-zone {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 8px);
+  left: 50%;
+  width: min(170px, 38vw);
+  height: 4px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.pitch-call {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 24px);
+  right: calc(env(safe-area-inset-right) + 12px);
+  min-width: 86px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.08);
+  text-align: center;
+  font-size: 0.82rem;
+}
+
+.pitch-call.is-strike {
+  background: rgba(50, 140, 255, 0.18);
+}
+
+.pitch-call.is-ball {
+  background: rgba(255, 180, 80, 0.18);
+}
+
+.debug-panel {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 66px);
+  right: calc(env(safe-area-inset-right) + 12px);
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.debug-panel p {
+  margin: 0;
+}
+
 .ball {
   position: absolute;
   top: 0;
@@ -127,5 +173,10 @@ button {
 
   .main-button {
     min-width: 160px;
+  }
+
+  .debug-panel {
+    top: calc(env(safe-area-inset-top) + 102px);
+    font-size: 0.7rem;
   }
 }
