@@ -93,6 +93,18 @@ function compressScreenVelocity(value, limit) {
   return Math.tanh(value / limit) * limit;
 }
 
+function clampVelocityToSpeed(maxSpeed) {
+  const currentSpeed = Math.hypot(state.velocityX, state.velocityY);
+
+  if (currentSpeed <= maxSpeed || currentSpeed < 0.0001) {
+    return;
+  }
+
+  const scale = maxSpeed / currentSpeed;
+  state.velocityX *= scale;
+  state.velocityY *= scale;
+}
+
 function updatePitchCall(text, kind = "") {
   elements.pitchCall.textContent = text;
   elements.pitchCall.classList.remove("is-strike", "is-ball");
@@ -197,25 +209,23 @@ function applyTopDownBounce() {
     return;
   }
 
+  const preBounceSpeed = Math.hypot(state.velocityX, state.velocityY);
   const impactVelocity = Math.abs(state.heightVelocity);
-  const slowFactor = Math.min(1, Math.max(0, (4200 - state.lastReleaseSpeed) / 3200));
   const zone = getStrikeZoneRect();
   const zoneCenterX = (zone.left + zone.right) * 0.5;
   const escapeDirection = state.ballX <= zoneCenterX ? -1 : 1;
-  const escapeX = escapeDirection < 0 ? zone.left - 18 : zone.right + 18;
 
   setBallBounced(true);
   state.pitchJudged = true;
   updatePitchCall("Bound!", "is-ball");
 
-  if (state.ballX >= zone.left - 10 && state.ballX <= zone.right + 10) {
-    state.ballX = escapeX;
-  }
-
   const impactRatio = Math.min(1, impactVelocity / 260);
   const dynamicForwardLoss = physics.bounceForwardLoss * (1 - impactRatio * 0.22);
-  state.velocityX = escapeDirection * Math.max(Math.abs(state.velocityX) * 0.7, 120);
+  const deflectionSpeed = Math.max(Math.abs(state.velocityX) * 0.7, Math.min(120, preBounceSpeed * 0.45));
+  state.velocityX = escapeDirection * deflectionSpeed;
   state.velocityY = -Math.max(Math.abs(state.velocityY) * dynamicForwardLoss, physics.minForwardSpeed);
+  clampVelocityToSpeed(preBounceSpeed * 0.8);
+  state.currentSpeed = Math.hypot(state.velocityX, state.velocityY);
 
   state.height = 0;
 
@@ -234,6 +244,7 @@ function startRolling() {
     return;
   }
 
+  const preRollSpeed = Math.hypot(state.velocityX, state.velocityY);
   state.motionMode = "rolling";
   state.height = 0;
   state.heightVelocity = 0;
@@ -260,6 +271,7 @@ function startRolling() {
 
   state.velocityX = rollSpeed * blendedDirection.x * Math.max(0.9, releaseSideWeight);
   state.velocityY = rollSpeed * blendedDirection.y * 0.5;
+  clampVelocityToSpeed(preRollSpeed * 0.8);
   state.currentSpeed = Math.hypot(state.velocityX, state.velocityY);
   updateHint("転がり中");
 }
