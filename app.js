@@ -159,7 +159,7 @@ function getStrikeZoneRect() {
   };
 }
 
-function judgePitchOnPath(previousX, previousY, nextX, nextY, previousHeight, currentHeight) {
+function judgePitchOnPath(previousX, previousY, nextX, nextY) {
   if (state.pitchJudged) {
     return;
   }
@@ -174,9 +174,8 @@ function judgePitchOnPath(previousX, previousY, nextX, nextY, previousHeight, cu
   state.pitchJudged = true;
   const ratio = (zone.y - previousY) / Math.max(nextY - previousY, -0.0001);
   const lineX = previousX + (nextX - previousX) * ratio;
-  const heightAtCross = previousHeight + (currentHeight - previousHeight) * ratio;
 
-  if (lineX >= zone.left && lineX <= zone.right && heightAtCross >= 0 && heightAtCross <= 55) {
+  if (lineX >= zone.left && lineX <= zone.right && state.bounceCount === 0) {
     updatePitchCall("STRIKE", "is-strike");
     return;
   }
@@ -206,11 +205,10 @@ function applyTopDownBounce() {
     state.ballX = escapeX;
   }
 
+  const impactRatio = Math.min(1, impactVelocity / 260);
+  const dynamicForwardLoss = physics.bounceForwardLoss * (1 - impactRatio * 0.22);
   state.velocityX = escapeDirection * Math.max(Math.abs(state.velocityX) * 0.7, 120);
-  state.velocityY = -Math.max(
-    Math.abs(state.velocityY) * physics.bounceForwardLoss + physics.bounceForwardBoost * (1 - slowFactor * 0.35),
-    physics.minForwardSpeed,
-  );
+  state.velocityY = -Math.max(Math.abs(state.velocityY) * dynamicForwardLoss, physics.minForwardSpeed);
 
   state.height = 0;
 
@@ -388,6 +386,13 @@ function animatePitch(timeStamp) {
     state.velocityX *= sideDragFactor;
     state.velocityY *= dragFactor;
 
+    if (state.height < 28 && state.heightVelocity < 0) {
+      const groundFactor = state.height / 28;
+      const approachDrag = Math.exp(-2.0 * (1 - groundFactor) * deltaSeconds);
+      state.velocityX *= approachDrag;
+      state.velocityY *= approachDrag;
+    }
+
     if (forwardFloor > 0 && state.velocityY > -forwardFloor) {
       state.velocityY = -forwardFloor;
     }
@@ -429,7 +434,7 @@ function animatePitch(timeStamp) {
   setBallPosition(state.ballX, state.ballY);
   updateHeightDebug();
 
-  judgePitchOnPath(previousX, previousY, state.ballX, state.ballY, previousHeight, state.height);
+  judgePitchOnPath(previousX, previousY, state.ballX, state.ballY);
 
   const zone = getStrikeZoneRect();
 
