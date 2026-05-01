@@ -1,14 +1,17 @@
 const state = {
   activePointerId: null,
   trail: [],
+  speedHistory: [],
   animationFrameId: 0,
   isPitching: false,
   motionMode: "flight",
   pitchJudged: false,
   bounceCount: 0,
-  travelSinceBounce: 0,
-  nextBounceDistance: 0,
   rollDirection: 1,
+  releaseDirectionX: 0,
+  releaseDirectionY: -1,
+  height: 0,
+  heightVelocity: 0,
   ballX: 0,
   ballY: 0,
   velocityX: 0,
@@ -29,11 +32,15 @@ const elements = {
   debugReleaseSpeed: document.getElementById("debugReleaseSpeed"),
   debugCurrentSpeed: document.getElementById("debugCurrentSpeed"),
   debugVelocity: document.getElementById("debugVelocity"),
+  speedHistory: document.getElementById("speedHistory"),
+  heightDebugBall: document.getElementById("heightDebugBall"),
+  heightDebugValue: document.getElementById("heightDebugValue"),
   ball: document.getElementById("ball"),
   hintText: document.getElementById("hintText"),
 };
 
 const physics = {
+  speedScale: 0.7,
   dragPerSecond: 1.2,
   sideDragPerSecond: 3.8,
   minForwardSpeed: 180,
@@ -41,12 +48,39 @@ const physics = {
   bounceForwardBoost: 90,
   maxBounces: 3,
   rollTriggerSpeed: 255,
-  rollBaseSpeed: 220,
-  rollSpeedFactor: 0.26,
-  rollDragPerSecond: 2.6,
-  rollStopSpeed: 24,
+  rollBaseSpeed: 170,
+  rollSpeedFactor: 0.18,
+  rollDragPerSecond: 5.4,
+  rollStopSpeed: 14,
   rollTopBand: 56,
+  softReleaseSpeed: 110,
+  softReleaseForwardSpeed: 150,
+  releaseHeight: 42,
+  releaseHeightSpeedFactor: 0.003,
+  heightGravity: 220,
+  bounceHeightLoss: 0.35,
+  minBounceUpVelocity: 52,
 };
+
+function updateHeightDebug() {
+  const clampedHeight = Math.max(0, Math.min(state.height, 72));
+  const verticalOffset = (clampedHeight / 72) * 112;
+  elements.heightDebugBall.style.transform = `translate(-50%, ${-verticalOffset}px)`;
+  elements.heightDebugValue.textContent = clampedHeight.toFixed(1);
+}
+
+function normalizeVector(x, y, fallbackX = 0, fallbackY = -1) {
+  const magnitude = Math.hypot(x, y);
+
+  if (magnitude < 0.0001) {
+    return { x: fallbackX, y: fallbackY };
+  }
+
+  return {
+    x: x / magnitude,
+    y: y / magnitude,
+  };
+}
 
 function updatePitchCall(text, kind = "") {
   elements.pitchCall.textContent = text;
@@ -57,26 +91,44 @@ function updatePitchCall(text, kind = "") {
   }
 }
 
+function setBallBounced(isBounced) {
+  elements.ball.classList.toggle("is-bounced", isBounced);
+  elements.heightDebugBall.classList.toggle("is-bounced", isBounced);
+}
+
 function updateDebug() {
   elements.debugReleaseSpeed.textContent = state.lastReleaseSpeed.toFixed(0);
   elements.debugCurrentSpeed.textContent = state.currentSpeed.toFixed(0);
   elements.debugVelocity.textContent = `${state.velocityX.toFixed(0)} / ${state.velocityY.toFixed(0)}`;
+  elements.speedHistory.innerHTML = state.speedHistory
+    .map((value) => `<li>${value.toFixed(0)}</li>`)
+    .join("");
+}
+
+function pushSpeedHistory(value) {
+  state.speedHistory.unshift(value);
+  state.speedHistory = state.speedHistory.slice(0, 5);
 }
 
 function resetPitchState() {
   state.motionMode = "flight";
   state.pitchJudged = false;
   state.bounceCount = 0;
-  state.travelSinceBounce = 0;
-  state.nextBounceDistance = 0;
   state.rollDirection = 1;
+  state.releaseDirectionX = 0;
+  state.releaseDirectionY = -1;
+  state.height = 0;
+  state.heightVelocity = 0;
   state.lastReleaseSpeed = 0;
   state.currentSpeed = 0;
+  state.speedHistory = [];
   state.velocityX = 0;
   state.velocityY = 0;
   state.lastTick = 0;
+  setBallBounced(false);
   updatePitchCall("未判定");
   updateDebug();
+  updateHeightDebug();
 }
 
 function getStrikeZoneRect() {
@@ -116,19 +168,34 @@ function judgePitchOnPath(previousX, previousY, nextX, nextY) {
 
 function applyTopDownBounce() {
   if (state.bounceCount >= physics.maxBounces) {
+    state.height = 0;
+    state.heightVelocity = 0;
     return;
   }
 
+  const impactVelocity = Math.abs(state.heightVelocity);
   const slowFactor = Math.min(1, Math.max(0, (4200 - state.lastReleaseSpeed) / 3200));
+
+  setBallBounced(true);
+  state.pitchJudged = true;
+  updatePitchCall("BALL", "is-ball");
 
   state.velocityX *= 0.45;
   state.velocityY = -Math.max(
     Math.abs(state.velocityY) * physics.bounceForwardLoss + physics.bounceForwardBoost * (1 - slowFactor * 0.35),
     physics.minForwardSpeed,
   );
+
+  state.height = 0;
+
+  if (impactVelocity < physics.minBounceUpVelocity) {
+    state.heightVelocity = 0;
+    startRolling();
+    return;
+  }
+
+  state.heightVelocity = impactVelocity * physics.bounceHeightLoss;
   state.bounceCount += 1;
-  state.travelSinceBounce = 0;
-  state.nextBounceDistance = Math.max(56, state.nextBounceDistance * (0.78 + slowFactor * 0.08));
 }
 
 function startRolling() {
@@ -137,18 +204,47 @@ function startRolling() {
   }
 
   state.motionMode = "rolling";
-  state.travelSinceBounce = 0;
-  state.nextBounceDistance = 0;
+  state.height = 0;
+  state.heightVelocity = 0;
 
+  const currentDirection = normalizeVector(state.velocityX, state.velocityY, state.rollDirection, -0.2);
+  const releaseDirection = normalizeVector(
+    state.releaseDirectionX,
+    state.releaseDirectionY,
+    state.rollDirection,
+    -0.25,
+  );
+  const releaseSideWeight = Math.max(0.35, Math.abs(releaseDirection.x) * 1.35);
+  const sideFallback = Math.sign(releaseDirection.x || currentDirection.x || state.rollDirection);
+  const blendedDirection = normalizeVector(
+    currentDirection.x * 0.45 + releaseDirection.x * 1.5 + sideFallback * 0.4,
+    currentDirection.y * 0.52 + releaseDirection.y * 0.7,
+    sideFallback,
+    -0.42,
+  );
   const rollSpeed = Math.max(
     physics.rollBaseSpeed,
-    Math.min(physics.rollBaseSpeed + state.currentSpeed * physics.rollSpeedFactor, 420),
+    Math.min(physics.rollBaseSpeed + state.currentSpeed * physics.rollSpeedFactor, 300),
   );
 
-  state.velocityX = rollSpeed * state.rollDirection;
-  state.velocityY = 0;
-  state.currentSpeed = Math.abs(state.velocityX);
+  state.velocityX = rollSpeed * blendedDirection.x * Math.max(0.9, releaseSideWeight);
+  state.velocityY = rollSpeed * blendedDirection.y * 0.5;
+  state.currentSpeed = Math.hypot(state.velocityX, state.velocityY);
   updateHint("転がり中");
+}
+
+function createSoftReleaseVector(vector) {
+  const rawX = vector ? vector.velocityX : 0;
+  const side = rawX * 0.1 * physics.speedScale;
+  const forwardSpeed = physics.softReleaseForwardSpeed * physics.speedScale;
+
+  return {
+    deltaX: vector ? vector.deltaX : 0,
+    deltaY: vector ? vector.deltaY : -6,
+    velocityX: Math.max(-physics.softReleaseSpeed, Math.min(side, physics.softReleaseSpeed)),
+    velocityY: -forwardSpeed,
+    speed: Math.hypot(Math.max(-physics.softReleaseSpeed, Math.min(side, physics.softReleaseSpeed)), forwardSpeed),
+  };
 }
 
 function showMainScreen() {
@@ -270,9 +366,11 @@ function animatePitch(timeStamp) {
 
     state.ballX += deltaX;
     state.ballY += deltaY;
-    state.travelSinceBounce += Math.hypot(deltaX, deltaY);
 
-    if (state.nextBounceDistance > 0 && state.travelSinceBounce >= state.nextBounceDistance) {
+    state.heightVelocity -= physics.heightGravity * deltaSeconds;
+    state.height += state.heightVelocity * deltaSeconds;
+
+    if (state.height <= 0 && state.heightVelocity < 0) {
       applyTopDownBounce();
     }
 
@@ -288,12 +386,14 @@ function animatePitch(timeStamp) {
     const rollDragFactor = Math.exp(-physics.rollDragPerSecond * deltaSeconds);
 
     state.velocityX *= rollDragFactor;
-    state.velocityY = 0;
+    state.velocityY *= rollDragFactor;
     state.ballX += state.velocityX * deltaSeconds;
-    state.currentSpeed = Math.abs(state.velocityX);
+    state.ballY += state.velocityY * deltaSeconds;
+    state.currentSpeed = Math.hypot(state.velocityX, state.velocityY);
   }
 
   setBallPosition(state.ballX, state.ballY);
+  updateHeightDebug();
 
   judgePitchOnPath(previousX, previousY, state.ballX, state.ballY);
 
@@ -312,6 +412,11 @@ function animatePitch(timeStamp) {
   const isRollFinished = state.motionMode === "rolling" && state.currentSpeed <= physics.rollStopSpeed;
 
   if (isOutside || isRollFinished) {
+    if (!state.pitchJudged) {
+      state.pitchJudged = true;
+      updatePitchCall("BALL", "is-ball");
+    }
+
     stopPitchAnimation();
     hideBall();
     updateHint("もう一度、指を置いて上にスワイプ");
@@ -330,18 +435,27 @@ function startPitch(vector) {
   state.motionMode = "flight";
   state.pitchJudged = false;
   state.bounceCount = 0;
-  state.travelSinceBounce = 0;
   state.isPitching = true;
   state.lastTick = 0;
   state.rollDirection = vector.velocityX >= 0 ? 1 : -1;
-  state.velocityX = vector.velocityX * 0.18;
-  state.velocityY = Math.min(vector.velocityY, -physics.minForwardSpeed);
-  state.lastReleaseSpeed = vector.speed;
-  state.currentSpeed = vector.speed;
-  state.nextBounceDistance = Math.max(64, Math.min(170, 110 - (vector.speed - 2200) * 0.014));
+  const releaseDirection = normalizeVector(vector.velocityX, vector.velocityY, state.rollDirection, -1);
+  state.releaseDirectionX = releaseDirection.x;
+  state.releaseDirectionY = releaseDirection.y;
+  const scaledVelocityX = vector.velocityX * physics.speedScale;
+  const scaledVelocityY = vector.velocityY * physics.speedScale;
+  const scaledSpeed = vector.speed * physics.speedScale;
+  state.velocityX = scaledVelocityX * 0.18;
+  state.velocityY = Math.min(scaledVelocityY, -physics.minForwardSpeed * physics.speedScale);
+  state.height = physics.releaseHeight + scaledSpeed * physics.releaseHeightSpeedFactor;
+  state.heightVelocity = -12;
+  state.lastReleaseSpeed = scaledSpeed;
+  state.currentSpeed = scaledSpeed;
+  pushSpeedHistory(scaledSpeed);
+  state.nextBounceDistance = Math.max(64, Math.min(170, 110 - (scaledSpeed - 2200) * 0.014));
   updatePitchCall("判定待ち");
   updateHint("投球中");
   updateDebug();
+  updateHeightDebug();
   state.animationFrameId = window.requestAnimationFrame(animatePitch);
 }
 
@@ -386,10 +500,19 @@ function endPointerControl(event) {
   state.activePointerId = null;
   state.trail = [];
 
-  if (!vector || vector.deltaY > -18 || vector.speed < 120) {
-    updateHint("上方向にもう少し強くスワイプ");
-    state.lastReleaseSpeed = vector ? vector.speed : 0;
-    updateDebug();
+  if (!vector) {
+    const softVector = createSoftReleaseVector(null);
+    state.lastReleaseSpeed = softVector.speed;
+    updateHint("弱いリリース");
+    startPitch(softVector);
+    return;
+  }
+
+  if (vector.deltaY > -18 || vector.speed < 120) {
+    const softVector = createSoftReleaseVector(vector);
+    state.lastReleaseSpeed = softVector.speed;
+    updateHint("弱いリリース");
+    startPitch(softVector);
     return;
   }
 
