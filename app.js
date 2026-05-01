@@ -1,6 +1,7 @@
 const state = {
   activePointerId: null,
   trail: [],
+  pitchPath: [],
   speedHistory: [],
   animationFrameId: 0,
   isPitching: false,
@@ -10,6 +11,9 @@ const state = {
   rollDirection: 1,
   releaseDirectionX: 0,
   releaseDirectionY: -1,
+  releaseCurve: 0,
+  curveAccelerationX: 0,
+  curveRampDuration: 1,
   height: 0,
   initialHeight: 0,
   heightVelocity: 0,
@@ -37,6 +41,10 @@ const elements = {
   debugReleaseSpeed: document.getElementById("debugReleaseSpeed"),
   debugCurrentSpeed: document.getElementById("debugCurrentSpeed"),
   debugVelocity: document.getElementById("debugVelocity"),
+  debugCurve: document.getElementById("debugCurve"),
+  debugCurveAcceleration: document.getElementById("debugCurveAcceleration"),
+  debugCurveBar: document.getElementById("debugCurveBar"),
+  pitchTrace: document.getElementById("pitchTrace"),
   speedHistory: document.getElementById("speedHistory"),
   heightDebugBall: document.getElementById("heightDebugBall"),
   heightDebugValue: document.getElementById("heightDebugValue"),
@@ -47,7 +55,7 @@ const elements = {
 const physics = {
   speedScale: 0.7,
   dragPerSecond: 1.2,
-  sideDragPerSecond: 3.8,
+  sideDragPerSecond: 2.4,
   minForwardSpeed: 180,
   maxForwardSpeed: 980,
   maxSideSpeed: 240,
@@ -60,6 +68,10 @@ const physics = {
   rollDragPerSecond: 2.6,
   rollStopSpeed: 8,
   rollTopBand: 56,
+  curveMaxAcceleration: 1300,
+  curveMinDuration: 0.22,
+  curveMaxDuration: 1.25,
+  curveSpeedReference: 700,
   softReleaseSpeed: 110,
   softReleaseForwardSpeed: 150,
   releaseHeight: 42,
@@ -93,6 +105,10 @@ function compressScreenVelocity(value, limit) {
   return Math.tanh(value / limit) * limit;
 }
 
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(value, max));
+}
+
 function clampVelocityToSpeed(maxSpeed) {
   const currentSpeed = Math.hypot(state.velocityX, state.velocityY);
 
@@ -119,10 +135,71 @@ function setBallBounced(isBounced) {
   elements.heightDebugBall.classList.toggle("is-bounced", isBounced);
 }
 
+function resetPitchTrace() {
+  state.pitchPath = [];
+  elements.pitchTrace.classList.remove("is-visible");
+  elements.pitchTrace.innerHTML = "";
+}
+
+function recordPitchPath() {
+  state.pitchPath.push({ x: state.ballX, y: state.ballY });
+  state.pitchPath = state.pitchPath.slice(-240);
+}
+
+function showPitchTrace() {
+  if (state.pitchPath.length < 2) {
+    return;
+  }
+
+  const segments = [];
+
+  for (let index = 1; index < state.pitchPath.length; index += 1) {
+    const previous = state.pitchPath[index - 1];
+    const next = state.pitchPath[index];
+    const dx = next.x - previous.x;
+    const dy = next.y - previous.y;
+    const length = Math.hypot(dx, dy);
+
+    if (length < 0.2) {
+      continue;
+    }
+
+    const angle = Math.atan2(dy, dx);
+    segments.push(
+      `<i class="pitch-trace-segment" style="left:${previous.x.toFixed(1)}px;top:${previous.y.toFixed(
+        1,
+      )}px;width:${length.toFixed(1)}px;transform:rotate(${angle.toFixed(4)}rad)"></i>`,
+    );
+  }
+
+  elements.pitchTrace.innerHTML = segments.join("");
+  elements.pitchTrace.classList.add("is-visible");
+}
+
+function updateCurveDebug(curve) {
+  const normalizedCurve = clamp(curve, -1, 1);
+  const acceleration = state.isPitching
+    ? state.curveAccelerationX
+    : normalizedCurve * physics.curveMaxAcceleration;
+
+  elements.debugCurve.textContent = normalizedCurve.toFixed(2);
+  elements.debugCurveAcceleration.textContent = acceleration.toFixed(0);
+  elements.debugCurveBar.classList.toggle("is-negative", normalizedCurve < 0);
+
+  if (normalizedCurve < 0) {
+    elements.debugCurveBar.style.left = `${50 + normalizedCurve * 50}%`;
+  } else {
+    elements.debugCurveBar.style.left = "50%";
+  }
+
+  elements.debugCurveBar.style.width = `${Math.abs(normalizedCurve) * 50}%`;
+}
+
 function updateDebug() {
   elements.debugReleaseSpeed.textContent = state.lastReleaseSpeed.toFixed(0);
   elements.debugCurrentSpeed.textContent = state.currentSpeed.toFixed(0);
   elements.debugVelocity.textContent = `${state.velocityX.toFixed(0)} / ${state.velocityY.toFixed(0)}`;
+  updateCurveDebug(state.releaseCurve);
   const historyItems = Array.from({ length: 5 }, (_, index) => state.speedHistory[index] ?? null);
 
   elements.speedHistory.innerHTML = historyItems
@@ -136,12 +213,16 @@ function pushSpeedHistory(value) {
 }
 
 function resetPitchState() {
+  resetPitchTrace();
   state.motionMode = "flight";
   state.pitchJudged = false;
   state.bounceCount = 0;
   state.rollDirection = 1;
   state.releaseDirectionX = 0;
   state.releaseDirectionY = -1;
+  state.releaseCurve = 0;
+  state.curveAccelerationX = 0;
+  state.curveRampDuration = physics.curveMaxDuration;
   state.height = 0;
   state.initialHeight = 0;
   state.heightVelocity = 0;
@@ -287,6 +368,7 @@ function createSoftReleaseVector(vector) {
     velocityX: Math.max(-physics.softReleaseSpeed, Math.min(side, physics.softReleaseSpeed)),
     velocityY: -forwardSpeed,
     speed: Math.hypot(Math.max(-physics.softReleaseSpeed, Math.min(side, physics.softReleaseSpeed)), forwardSpeed),
+    curve: 0,
   };
 }
 
@@ -340,8 +422,62 @@ function getSurfacePoint(event) {
 function pushTrailPoint(x, y, timeStamp) {
   state.trail.push({ x, y, timeStamp });
 
-  const cutoff = timeStamp - 120;
-  state.trail = state.trail.filter((point) => point.timeStamp >= cutoff).slice(-8);
+  const cutoff = timeStamp - 260;
+  state.trail = state.trail.filter((point) => point.timeStamp >= cutoff).slice(-18);
+  state.releaseCurve = getReleaseCurve();
+  updateCurveDebug(state.releaseCurve);
+}
+
+function getReleaseCurve() {
+  if (state.trail.length < 4) {
+    return 0;
+  }
+
+  const segments = [];
+
+  for (let index = 1; index < state.trail.length; index += 1) {
+    const previous = state.trail[index - 1];
+    const next = state.trail[index];
+    const dx = next.x - previous.x;
+    const dy = next.y - previous.y;
+    const length = Math.hypot(dx, dy);
+
+    if (length < 3) {
+      continue;
+    }
+
+    segments.push({
+      x: dx / length,
+      y: dy / length,
+      length,
+    });
+  }
+
+  if (segments.length < 2) {
+    return 0;
+  }
+
+  let signedTurn = 0;
+  let totalDistance = segments[0].length;
+
+  for (let index = 1; index < segments.length; index += 1) {
+    const previous = segments[index - 1];
+    const next = segments[index];
+    const cross = previous.x * next.y - previous.y * next.x;
+    const dot = previous.x * next.x + previous.y * next.y;
+    const segmentWeight = Math.min(1, Math.min(previous.length, next.length) / 18);
+
+    signedTurn += Math.atan2(cross, dot) * segmentWeight;
+    totalDistance += next.length;
+  }
+
+  const firstPoint = state.trail[0];
+  const lastPoint = state.trail[state.trail.length - 1];
+  const directDistance = Math.hypot(lastPoint.x - firstPoint.x, lastPoint.y - firstPoint.y);
+  const bendRatio = directDistance > 0 ? clamp(totalDistance / directDistance - 1, 0, 1) : 1;
+  const curve = (signedTurn / Math.PI) * (0.35 + bendRatio * 0.65);
+
+  return clamp(curve, -1, 1);
 }
 
 function getReleaseVector() {
@@ -371,6 +507,7 @@ function getReleaseVector() {
     velocityX: (deltaX / deltaTime) * 1000,
     velocityY: (deltaY / deltaTime) * 1000,
     speed: (Math.hypot(deltaX, deltaY) / deltaTime) * 1000,
+    curve: getReleaseCurve(),
   };
 }
 
@@ -399,21 +536,19 @@ function animatePitch(timeStamp) {
     state.flightElapsed += deltaSeconds;
     const dragFactor = Math.exp(-physics.dragPerSecond * deltaSeconds);
     const sideDragFactor = Math.exp(-physics.sideDragPerSecond * deltaSeconds);
-    const heightRatio = state.initialHeight > 0 ? Math.max(0, Math.min(1, state.height / state.initialHeight)) : 0;
-    const forwardFloor = physics.minForwardSpeed * Math.pow(heightRatio, 1.35) * 0.42;
-
     state.velocityX *= sideDragFactor;
     state.velocityY *= dragFactor;
+
+    if (state.bounceCount === 0 && Math.abs(state.curveAccelerationX) > 0.0001) {
+      const curveRamp = clamp(state.flightElapsed / state.curveRampDuration, 0, 1);
+      state.velocityX += state.curveAccelerationX * curveRamp * deltaSeconds;
+    }
 
     if (state.height < 28 && state.heightVelocity < 0) {
       const groundFactor = state.height / 28;
       const approachDrag = Math.exp(-2.0 * (1 - groundFactor) * deltaSeconds);
       state.velocityX *= approachDrag;
       state.velocityY *= approachDrag;
-    }
-
-    if (forwardFloor > 0 && state.velocityY > -forwardFloor) {
-      state.velocityY = -forwardFloor;
     }
 
     const deltaX = state.velocityX * deltaSeconds;
@@ -451,6 +586,7 @@ function animatePitch(timeStamp) {
   }
 
   setBallPosition(state.ballX, state.ballY);
+  recordPitchPath();
   updateHeightDebug();
 
   judgePitchOnPath(previousX, previousY, state.ballX, state.ballY);
@@ -466,18 +602,25 @@ function animatePitch(timeStamp) {
 
   const isOutside =
     state.ballY < -40 ||
+    state.ballY > rect.height + 80 ||
     state.ballX < -80 ||
     state.ballX > rect.width + 80;
 
   const isRollFinished = state.motionMode === "rolling" && state.currentSpeed <= physics.rollStopSpeed;
+  const isFlightFinished =
+    state.motionMode === "flight" &&
+    state.flightElapsed > 0.35 &&
+    state.height <= 0 &&
+    state.currentSpeed <= physics.rollStopSpeed;
 
-  if (isOutside || isRollFinished) {
+  if (isOutside || isRollFinished || isFlightFinished) {
     if (!state.pitchJudged) {
       state.pitchJudged = true;
       updatePitchCall("BALL", "is-ball");
     }
 
     stopPitchAnimation();
+    showPitchTrace();
     hideBall();
     updateHint("もう一度、指を置いて上にスワイプ");
     state.height = 0;
@@ -504,24 +647,40 @@ function startPitch(vector) {
   const releaseDirection = normalizeVector(vector.velocityX, vector.velocityY, state.rollDirection, -1);
   state.releaseDirectionX = releaseDirection.x;
   state.releaseDirectionY = releaseDirection.y;
+  state.releaseCurve = clamp(vector.curve || 0, -1, 1);
   const scaledVelocityX = vector.velocityX * physics.speedScale;
   const scaledVelocityY = vector.velocityY * physics.speedScale;
   const scaledSpeed = vector.speed * physics.speedScale;
-  state.velocityX = compressScreenVelocity(scaledVelocityX * 0.45, physics.maxSideSpeed);
-  state.velocityY = Math.min(
-    compressScreenVelocity(scaledVelocityY, physics.maxForwardSpeed),
-    -physics.minForwardSpeed * physics.speedScale * 0.55,
+  const curveSpeedFactor = clamp(scaledSpeed / physics.curveSpeedReference, 0.7, 3.2);
+  state.curveAccelerationX = state.releaseCurve * physics.curveMaxAcceleration * curveSpeedFactor;
+  state.curveRampDuration = clamp(
+    physics.curveMaxDuration / curveSpeedFactor,
+    physics.curveMinDuration,
+    physics.curveMaxDuration,
   );
-  state.initialHeight = Math.min(92, physics.releaseHeight + scaledSpeed * physics.releaseHeightSpeedFactor * 2.2);
-  state.height = state.initialHeight;
+  state.velocityX = compressScreenVelocity(scaledVelocityX * 0.45, physics.maxSideSpeed);
+  state.velocityY = compressScreenVelocity(scaledVelocityY, physics.maxForwardSpeed);
   state.heightVelocity = 0;
   state.flightGravity = Math.max(120, physics.heightGravity - Math.min(90, scaledSpeed * 0.018));
   const zone = getStrikeZoneRect();
+  const baseHeight = Math.min(92, physics.releaseHeight + scaledSpeed * physics.releaseHeightSpeedFactor * 2.2);
+  // ゾームまで着地せずに届くために必要な最低 initialHeight をドラッグ込みで逆算する
+  // ballY(t) = ballY_0 + vy*(1-exp(-k*t))/k なので t_zone = -ln(1 - dist*k/vy) / k
+  const distToZone = Math.max(0, state.ballY - zone.bottom);
+  const vy = Math.abs(state.velocityY);
+  const k = physics.dragPerSecond;
+  const minHeightForZone =
+    vy > distToZone * k
+      ? 0.5 * state.flightGravity * (-Math.log(1 - (distToZone * k) / vy) / k) ** 2 * 1.1
+      : 0;
+  state.initialHeight = Math.min(400, Math.max(baseHeight, minHeightForZone));
+  state.height = state.initialHeight;
   state.bounceMinY = zone.top + (state.ballY - zone.top) * 0.2;
   state.flightElapsed = 0;
   state.bounceMinTime = 0.38 + Math.min(0.22, scaledSpeed / 12000);
   state.lastReleaseSpeed = scaledSpeed;
   state.currentSpeed = scaledSpeed;
+  recordPitchPath();
   pushSpeedHistory(scaledSpeed);
   state.nextBounceDistance = Math.max(64, Math.min(170, 110 - (scaledSpeed - 2200) * 0.014));
   updatePitchCall("判定待ち");
@@ -580,7 +739,7 @@ function endPointerControl(event) {
     return;
   }
 
-  if (vector.deltaY > -18 || vector.speed < 120) {
+  if (vector.speed < 120) {
     const softVector = createSoftReleaseVector(vector);
     state.lastReleaseSpeed = softVector.speed;
     updateHint("弱いリリース");

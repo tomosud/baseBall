@@ -31,8 +31,15 @@
           <p>release raw: <span id="debugReleaseSpeed">0</span></p>
           <p>current raw: <span id="debugCurrentSpeed">0</span></p>
           <p>vx / vy: <span id="debugVelocity">0 / 0</span></p>
+          <p>curve: <span id="debugCurve">0.00</span></p>
+          <p>curve ax: <span id="debugCurveAcceleration">0</span></p>
+          <div class="curve-debug-meter" aria-hidden="true">
+            <div class="curve-debug-axis"></div>
+            <div class="curve-debug-bar" id="debugCurveBar"></div>
+          </div>
           <ol class="speed-history" id="speedHistory"></ol>
         </div>
+        <div class="pitch-trace" id="pitchTrace" aria-hidden="true"></div>
         <div class="ball is-hidden" id="ball" aria-hidden="true"></div>
         <p class="hint" id="hintText">指を置いて位置を決めて、上にスワイプして投げる</p>
       </div>
