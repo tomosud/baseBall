@@ -30,11 +30,55 @@ const state = {
   lastTick: 0,
 };
 
+const battingState = {
+  activePointerId: null,
+  trail: [],
+  isRunning: false,
+  isBallActive: false,
+  isHit: false,
+  isSwinging: false,
+  swingTimer: 0,
+  nextPitchAt: 0,
+  animationFrameId: 0,
+  lastTick: 0,
+  ballX: 0,
+  ballY: 0,
+  velocityX: 0,
+  velocityY: 0,
+  curveAccelerationX: 0,
+  pitchElapsed: 0,
+  pitchRawSpeed: 0,
+  currentSpeed: 0,
+  pitchJudged: false,
+  batX: 0,
+  batY: 0,
+  batBaseX: 0,
+  batBaseY: 0,
+  batPointerStartX: 0,
+  batPointerStartY: 0,
+  batAngle: 0,
+  batReadyAngle: 0,
+  swingStartAngle: 0,
+  swingEndAngle: 0,
+  swingVelocityX: 0,
+  swingVelocityY: 0,
+  swingMoveVelocityX: 0,
+  swingMoveVelocityY: 0,
+  swingSpeed: 0,
+  swingPower: 0,
+  swingAngularSpeed: 0,
+  swingGateSpeed: 0,
+  swingElapsed: 0,
+};
+
 const elements = {
   mainScreen: document.getElementById("mainScreen"),
   prototypeScreen: document.getElementById("prototypeScreen"),
+  battingScreen: document.getElementById("battingScreen"),
   openPitchPrototype: document.getElementById("openPitchPrototype"),
+  openBattingPrototype: document.getElementById("openBattingPrototype"),
   backButton: document.getElementById("backButton"),
+  battingBackButton: document.getElementById("battingBackButton"),
   pitchSurface: document.getElementById("pitchSurface"),
   strikeZone: document.getElementById("strikeZone"),
   pitchCall: document.getElementById("pitchCall"),
@@ -52,6 +96,20 @@ const elements = {
   heightDebugValue: document.getElementById("heightDebugValue"),
   ball: document.getElementById("ball"),
   hintText: document.getElementById("hintText"),
+  battingSurface: document.getElementById("battingSurface"),
+  battingStrikeZone: document.getElementById("battingStrikeZone"),
+  battingCall: document.getElementById("battingCall"),
+  battingDebugRaw: document.getElementById("battingDebugRaw"),
+  battingDebugKmh: document.getElementById("battingDebugKmh"),
+  battingDebugSwing: document.getElementById("battingDebugSwing"),
+  battingDebugPower: document.getElementById("battingDebugPower"),
+  battingDebugSwingGate: document.getElementById("battingDebugSwingGate"),
+  battingSwingBar: document.getElementById("battingSwingBar"),
+  battingBall: document.getElementById("battingBall"),
+  batHitAngle: document.getElementById("batHitAngle"),
+  batReflectAngle: document.getElementById("batReflectAngle"),
+  bat: document.getElementById("bat"),
+  battingHint: document.getElementById("battingHint"),
 };
 
 const physics = {
@@ -81,6 +139,21 @@ const physics = {
   heightGravity: 220,
   bounceHeightLoss: 0.35,
   minBounceUpVelocity: 52,
+  battingMinRawSpeed: 3000,
+  battingMaxRawSpeed: 4500,
+  battingSpeedScale: 0.18,
+  battingSwingThreshold: 620,
+  battingSwingDuration: 0.033,
+  battingHitDragPerSecond: 1.1,
+  battingStopSpeed: 18,
+  batHitPowerScale: 0.55,
+  batMoveScale: 1 / 3,
+  batMoveYScale: 1 / 3,
+  batVerticalRangeRatio: 1,
+  batLength: 59,
+  batRestAngle: Math.PI / 8,
+  batMaxLoadAngle: Math.PI / 2.4,
+  batLoadDragDistance: 170,
 };
 
 function updateHeightDebug() {
@@ -107,8 +180,47 @@ function compressScreenVelocity(value, limit) {
   return Math.tanh(value / limit) * limit;
 }
 
+function rawToKmh(rawSpeed) {
+  return (rawSpeed / 4000) * 100;
+}
+
 function clamp(value, min, max) {
   return Math.max(min, Math.min(value, max));
+}
+
+function getZoneRect(surfaceElement, zoneElement) {
+  const surfaceRect = surfaceElement.getBoundingClientRect();
+  const zoneRect = zoneElement.getBoundingClientRect();
+
+  return {
+    left: zoneRect.left - surfaceRect.left,
+    right: zoneRect.right - surfaceRect.left,
+    top: zoneRect.top - surfaceRect.top,
+    bottom: zoneRect.bottom - surfaceRect.top,
+  };
+}
+
+function getZonePathCall(previousX, previousY, nextX, nextY, zone, direction, hasBounced = false) {
+  const lineY = direction === "down" ? zone.top : zone.bottom;
+  const crossedZone =
+    direction === "down"
+      ? previousY < lineY && nextY >= lineY
+      : previousY > lineY && nextY <= lineY;
+
+  if (!crossedZone) {
+    return null;
+  }
+
+  const deltaY = nextY - previousY;
+
+  if (Math.abs(deltaY) < 0.0001) {
+    return null;
+  }
+
+  const ratio = (lineY - previousY) / deltaY;
+  const lineX = previousX + (nextX - previousX) * ratio;
+
+  return lineX >= zone.left && lineX <= zone.right && !hasBounced ? "strike" : "ball";
 }
 
 function clampVelocityToSpeed(maxSpeed) {
@@ -200,8 +312,8 @@ function updateCurveDebug(curve) {
 function updateDebug() {
   elements.debugReleaseSpeed.textContent = state.lastReleaseSpeed.toFixed(0);
   elements.debugCurrentSpeed.textContent = state.currentSpeed.toFixed(0);
-  elements.debugReleaseKmh.textContent = ((state.lastReleaseSpeed / 4000) * 100).toFixed(1);
-  elements.debugCurrentKmh.textContent = ((state.currentSpeed / 4000) * 100).toFixed(1);
+  elements.debugReleaseKmh.textContent = rawToKmh(state.lastReleaseSpeed).toFixed(1);
+  elements.debugCurrentKmh.textContent = rawToKmh(state.currentSpeed).toFixed(1);
   elements.debugVelocity.textContent = `${state.velocityX.toFixed(0)} / ${state.velocityY.toFixed(0)}`;
   updateCurveDebug(state.releaseCurve);
   const historyItems = Array.from({ length: 5 }, (_, index) => state.speedHistory[index] ?? null);
@@ -246,15 +358,7 @@ function resetPitchState() {
 }
 
 function getStrikeZoneRect() {
-  const surfaceRect = elements.pitchSurface.getBoundingClientRect();
-  const zoneRect = elements.strikeZone.getBoundingClientRect();
-
-  return {
-    left: zoneRect.left - surfaceRect.left,
-    right: zoneRect.right - surfaceRect.left,
-    top: zoneRect.top - surfaceRect.top,
-    bottom: zoneRect.bottom - surfaceRect.top,
-  };
+  return getZoneRect(elements.pitchSurface, elements.strikeZone);
 }
 
 function judgePitchOnPath(previousX, previousY, nextX, nextY) {
@@ -262,24 +366,23 @@ function judgePitchOnPath(previousX, previousY, nextX, nextY) {
     return;
   }
 
-  const zone = getStrikeZoneRect();
-  const crossedZone = previousY > zone.bottom && nextY <= zone.bottom;
+  const call = getZonePathCall(
+    previousX,
+    previousY,
+    nextX,
+    nextY,
+    getStrikeZoneRect(),
+    "up",
+    state.bounceCount > 0,
+  );
 
-  if (!crossedZone) {
-    return;
-  }
-
-  const deltaY = nextY - previousY;
-
-  if (Math.abs(deltaY) < 0.0001) {
+  if (!call) {
     return;
   }
 
   state.pitchJudged = true;
-  const ratio = (zone.bottom - previousY) / deltaY;
-  const lineX = previousX + (nextX - previousX) * ratio;
 
-  if (lineX >= zone.left && lineX <= zone.right && state.bounceCount === 0) {
+  if (call === "strike") {
     updatePitchCall("STRIKE", "is-strike");
     return;
   }
@@ -378,17 +481,34 @@ function createSoftReleaseVector(vector) {
 
 function showMainScreen() {
   stopPitchAnimation();
+  stopBattingAnimation();
   hideBall();
+  hideBattingBall();
   elements.prototypeScreen.classList.add("is-hidden");
+  elements.battingScreen.classList.add("is-hidden");
   elements.mainScreen.classList.remove("is-hidden");
 }
 
 function showPrototypeScreen() {
+  stopBattingAnimation();
   elements.mainScreen.classList.add("is-hidden");
+  elements.battingScreen.classList.add("is-hidden");
   elements.prototypeScreen.classList.remove("is-hidden");
   state.speedHistory = [];
   elements.hintText.textContent = "指を置いて位置を決めて、上にスワイプして投げる";
   resetPitchState();
+}
+
+function showBattingScreen() {
+  stopPitchAnimation();
+  hideBall();
+  elements.mainScreen.classList.add("is-hidden");
+  elements.prototypeScreen.classList.add("is-hidden");
+  elements.battingScreen.classList.remove("is-hidden");
+  resetBattingState();
+  battingState.isRunning = true;
+  battingState.nextPitchAt = performance.now() + 500;
+  battingState.animationFrameId = window.requestAnimationFrame(animateBatting);
 }
 
 function stopPitchAnimation() {
@@ -398,6 +518,15 @@ function stopPitchAnimation() {
   }
 
   state.isPitching = false;
+}
+
+function stopBattingAnimation() {
+  if (battingState.animationFrameId) {
+    window.cancelAnimationFrame(battingState.animationFrameId);
+    battingState.animationFrameId = 0;
+  }
+
+  battingState.isRunning = false;
 }
 
 function showBall() {
@@ -517,6 +646,402 @@ function getReleaseVector() {
 
 function updateHint(text) {
   elements.hintText.textContent = text;
+}
+
+function updateBattingCall(text, kind = "") {
+  elements.battingCall.textContent = text;
+  elements.battingCall.classList.remove("is-strike", "is-ball");
+
+  if (kind) {
+    elements.battingCall.classList.add(kind);
+  }
+}
+
+function updateBattingDebug() {
+  elements.battingDebugRaw.textContent = battingState.pitchRawSpeed.toFixed(0);
+  elements.battingDebugKmh.textContent = rawToKmh(battingState.pitchRawSpeed).toFixed(1);
+  elements.battingDebugSwing.textContent = battingState.swingSpeed.toFixed(0);
+  elements.battingDebugPower.textContent = battingState.swingPower.toFixed(0);
+  elements.battingDebugSwingGate.textContent = `${battingState.swingGateSpeed.toFixed(0)} / ${physics.battingSwingThreshold}`;
+  elements.battingSwingBar.style.width = `${clamp(
+    (battingState.swingGateSpeed / physics.battingSwingThreshold) * 100,
+    0,
+    100,
+  ).toFixed(1)}%`;
+  elements.battingSwingBar.classList.toggle("is-ready", battingState.swingGateSpeed >= physics.battingSwingThreshold);
+}
+
+function getBattingStrikeZoneRect() {
+  return getZoneRect(elements.battingSurface, elements.battingStrikeZone);
+}
+
+function isBallInBattingContactBand() {
+  const zone = getBattingStrikeZoneRect();
+
+  return battingState.ballY >= zone.top && battingState.ballY <= zone.bottom;
+}
+
+function setBattingBallPosition(x, y) {
+  battingState.ballX = x;
+  battingState.ballY = y;
+  elements.battingBall.style.transform = `translate(${x}px, ${y}px)`;
+}
+
+function showBattingBall() {
+  elements.battingBall.classList.remove("is-hidden");
+}
+
+function hideBattingBall() {
+  elements.battingBall.classList.add("is-hidden");
+}
+
+function setBatPosition(x, y, angle = battingState.batAngle) {
+  battingState.batX = x;
+  battingState.batY = y;
+  battingState.batAngle = angle;
+  elements.bat.style.transform = `translate(${x}px, ${y}px) rotate(${angle}rad)`;
+}
+
+function getDefaultBatPosition() {
+  const rect = elements.battingSurface.getBoundingClientRect();
+  const zone = getBattingStrikeZoneRect();
+  const zoneCenterX = (zone.left + zone.right) * 0.5;
+  const x = clamp(zoneCenterX - physics.batLength * 0.5, 16, rect.width - physics.batLength - 16);
+  const y = (zone.top + zone.bottom) * 0.5;
+
+  return { x, y };
+}
+
+function placeBatOnSwingLine(pointerX = null, pointerY = null) {
+  const rect = elements.battingSurface.getBoundingClientRect();
+  const zone = getBattingStrikeZoneRect();
+  const x =
+    pointerX === null
+      ? battingState.batBaseX
+      : battingState.batBaseX + (pointerX - battingState.batPointerStartX) * physics.batMoveScale;
+  const clampedX = clamp(x, 12, rect.width - physics.batLength - 12);
+  const zoneHeight = zone.bottom - zone.top;
+  const verticalHalfRange = (zoneHeight * physics.batVerticalRangeRatio) * 0.5;
+  const y =
+    pointerY === null
+      ? battingState.batBaseY
+      : battingState.batBaseY + (pointerY - battingState.batPointerStartY) * physics.batMoveYScale;
+  const clampedY = clamp(y, battingState.batBaseY - verticalHalfRange, battingState.batBaseY + verticalHalfRange);
+  const loadRatio =
+    pointerY === null ? 0 : clamp((pointerY - battingState.batPointerStartY) / physics.batLoadDragDistance, 0, 1);
+  const readyAngle =
+    physics.batRestAngle + (physics.batMaxLoadAngle - physics.batRestAngle) * loadRatio;
+  battingState.batReadyAngle = readyAngle;
+  setBatPosition(clampedX, clampedY, readyAngle);
+}
+
+function hideBatDebugAngles() {
+  elements.batHitAngle.classList.add("is-hidden");
+  elements.batReflectAngle.classList.add("is-hidden");
+}
+
+function showBatHitAngle() {
+  elements.batHitAngle.classList.remove("is-hidden");
+  elements.batHitAngle.style.transform = `translate(${battingState.batX}px, ${battingState.batY}px) rotate(${battingState.batAngle}rad)`;
+}
+
+function showBatReflectAngle() {
+  const angle = Math.atan2(battingState.velocityY, battingState.velocityX);
+  elements.batReflectAngle.classList.remove("is-hidden");
+  elements.batReflectAngle.style.transform = `translate(${battingState.ballX}px, ${battingState.ballY}px) rotate(${angle}rad)`;
+}
+
+function pushBattingTrailPoint(x, y, timeStamp) {
+  battingState.trail.push({ x, y, timeStamp });
+  const cutoff = timeStamp - 140;
+  battingState.trail = battingState.trail.filter((point) => point.timeStamp >= cutoff).slice(-10);
+}
+
+function getBattingPointerVector() {
+  if (battingState.trail.length < 2) {
+    return { velocityX: 0, velocityY: 0, speed: 0 };
+  }
+
+  const lastPoint = battingState.trail[battingState.trail.length - 1];
+  let basePoint = battingState.trail[0];
+
+  for (let index = battingState.trail.length - 2; index >= 0; index -= 1) {
+    const candidate = battingState.trail[index];
+
+    if (lastPoint.timeStamp - candidate.timeStamp >= 30) {
+      basePoint = candidate;
+      break;
+    }
+  }
+
+  const deltaTime = Math.max(lastPoint.timeStamp - basePoint.timeStamp, 16);
+  const velocityX = ((lastPoint.x - basePoint.x) / deltaTime) * 1000;
+  const velocityY = ((lastPoint.y - basePoint.y) / deltaTime) * 1000;
+
+  return {
+    velocityX,
+    velocityY,
+    speed: Math.hypot(velocityX, velocityY),
+  };
+}
+
+function startBattingSwing(vector) {
+  if (battingState.isSwinging) {
+    return;
+  }
+
+  battingState.isSwinging = true;
+  battingState.swingTimer = physics.battingSwingDuration;
+  battingState.swingElapsed = 0;
+  battingState.swingStartAngle = battingState.batReadyAngle || physics.batRestAngle;
+  battingState.swingEndAngle = -battingState.swingStartAngle;
+  battingState.swingVelocityX = vector.velocityX;
+  battingState.swingVelocityY = vector.velocityY;
+  battingState.swingMoveVelocityX = vector.velocityX * physics.batMoveScale;
+  battingState.swingMoveVelocityY = vector.velocityY * physics.batMoveYScale;
+  battingState.swingSpeed = vector.speed;
+  battingState.swingAngularSpeed =
+    Math.abs(battingState.swingEndAngle - battingState.swingStartAngle) / physics.battingSwingDuration;
+  battingState.swingPower = 0;
+  elements.bat.classList.add("is-swinging");
+  elements.bat.classList.remove("is-hit");
+  updateBattingDebug();
+}
+
+function distanceToBatSegment(x, y) {
+  const ax = battingState.batX;
+  const ay = battingState.batY;
+  const bx = ax + Math.cos(battingState.batAngle) * physics.batLength;
+  const by = ay + Math.sin(battingState.batAngle) * physics.batLength;
+  const dx = bx - ax;
+  const dy = by - ay;
+  const lengthSquared = dx * dx + dy * dy;
+  const ratio = lengthSquared > 0 ? clamp(((x - ax) * dx + (y - ay) * dy) / lengthSquared, 0, 1) : 0;
+  const closestX = ax + dx * ratio;
+  const closestY = ay + dy * ratio;
+
+  return Math.hypot(x - closestX, y - closestY);
+}
+
+function getBatHitRatio(x, y) {
+  const ax = battingState.batX;
+  const ay = battingState.batY;
+  const bx = ax + Math.cos(battingState.batAngle) * physics.batLength;
+  const by = ay + Math.sin(battingState.batAngle) * physics.batLength;
+  const dx = bx - ax;
+  const dy = by - ay;
+  const lengthSquared = dx * dx + dy * dy;
+
+  return lengthSquared > 0 ? clamp(((x - ax) * dx + (y - ay) * dy) / lengthSquared, 0, 1) : 0;
+}
+
+function reflectBallFromBat() {
+  const batDirection = normalizeVector(Math.cos(battingState.batAngle), Math.sin(battingState.batAngle), 1, 0);
+  let normalX = -batDirection.y;
+  let normalY = batDirection.x;
+  const incomingDot = battingState.velocityX * normalX + battingState.velocityY * normalY;
+
+  if (incomingDot > 0) {
+    normalX *= -1;
+    normalY *= -1;
+  }
+
+  const reflectedX = battingState.velocityX - 2 * incomingDot * normalX;
+  const swingDirection = normalizeVector(
+    battingState.swingVelocityX,
+    battingState.swingVelocityY,
+    0,
+    -1,
+  );
+  const hitRatio = getBatHitRatio(battingState.ballX, battingState.ballY);
+  const radius = physics.batLength * hitRatio;
+  const angularDirection = battingState.swingEndAngle >= battingState.swingStartAngle ? 1 : -1;
+  const signedAngularSpeed = battingState.swingAngularSpeed * angularDirection;
+  const tangentVelocityX = -Math.sin(battingState.batAngle) * signedAngularSpeed * radius;
+  const tangentVelocityY = Math.cos(battingState.batAngle) * signedAngularSpeed * radius;
+  const contactVelocityX = battingState.swingMoveVelocityX + tangentVelocityX;
+  const contactVelocityY = battingState.swingMoveVelocityY + tangentVelocityY;
+  const localBatSpeed = Math.hypot(contactVelocityX, contactVelocityY);
+  const impulse = localBatSpeed * physics.batHitPowerScale;
+  battingState.swingPower = impulse;
+  const contactDirection = normalizeVector(contactVelocityX, contactVelocityY, swingDirection.x, swingDirection.y);
+  const launchSide = normalizeVector(reflectedX * 0.2 + contactDirection.x * impulse, 0, 0, 0).x;
+  const launchSpeed = clamp(220 + impulse + battingState.currentSpeed * 0.08, 260, 980);
+  const launchDirection = normalizeVector(launchSide * 0.72, contactDirection.y - 0.35, 0, -1);
+
+  battingState.velocityX = launchDirection.x * launchSpeed;
+  battingState.velocityY = launchDirection.y * launchSpeed;
+  battingState.currentSpeed = Math.hypot(battingState.velocityX, battingState.velocityY);
+  battingState.isHit = true;
+  battingState.pitchJudged = true;
+  elements.bat.classList.add("is-hit");
+  showBatHitAngle();
+  showBatReflectAngle();
+  updateBattingCall("HIT");
+  elements.battingHint.textContent = "HIT";
+}
+
+function resetBattingState() {
+  stopBattingAnimation();
+  battingState.activePointerId = null;
+  battingState.trail = [];
+  battingState.isBallActive = false;
+  battingState.isHit = false;
+  battingState.isSwinging = false;
+  battingState.swingTimer = 0;
+  battingState.nextPitchAt = 0;
+  battingState.lastTick = 0;
+  battingState.pitchRawSpeed = 0;
+  battingState.currentSpeed = 0;
+  battingState.pitchJudged = false;
+  battingState.swingSpeed = 0;
+  battingState.swingPower = 0;
+  battingState.swingMoveVelocityX = 0;
+  battingState.swingMoveVelocityY = 0;
+  battingState.swingAngularSpeed = 0;
+  battingState.swingGateSpeed = 0;
+  battingState.swingElapsed = 0;
+  battingState.batAngle = physics.batRestAngle;
+  battingState.batReadyAngle = physics.batRestAngle;
+  battingState.swingStartAngle = physics.batRestAngle;
+  battingState.swingEndAngle = -physics.batRestAngle;
+  elements.bat.classList.remove("is-swinging", "is-hit");
+  hideBatDebugAngles();
+  hideBattingBall();
+  const batPosition = getDefaultBatPosition();
+  battingState.batBaseX = batPosition.x;
+  battingState.batBaseY = batPosition.y;
+  setBatPosition(batPosition.x, batPosition.y, physics.batRestAngle);
+  updateBattingCall("READY");
+  updateBattingDebug();
+}
+
+function spawnBattingPitch() {
+  const rect = elements.battingSurface.getBoundingClientRect();
+  const zone = getBattingStrikeZoneRect();
+  const zoneCenterX = (zone.left + zone.right) * 0.5;
+  const rawSpeed = physics.battingMinRawSpeed + Math.random() * (physics.battingMaxRawSpeed - physics.battingMinRawSpeed);
+  const speedY = rawSpeed * physics.battingSpeedScale;
+  const startX = clamp(zoneCenterX + (Math.random() - 0.5) * 240, 24, rect.width - 24);
+  const targetX = zoneCenterX + (Math.random() - 0.5) * 150;
+  const startY = -24;
+  const travelTime = Math.max(0.45, (zone.top - startY) / speedY);
+
+  battingState.pitchRawSpeed = rawSpeed;
+  battingState.currentSpeed = rawSpeed;
+  battingState.velocityX = (targetX - startX) / travelTime;
+  battingState.velocityY = speedY;
+  battingState.curveAccelerationX = (Math.random() - 0.5) * 260;
+  battingState.pitchElapsed = 0;
+  battingState.pitchJudged = false;
+  battingState.isBallActive = true;
+  battingState.isHit = false;
+  elements.bat.classList.remove("is-hit");
+  hideBatDebugAngles();
+  setBattingBallPosition(startX, startY);
+  showBattingBall();
+  updateBattingCall("WAIT");
+  elements.battingHint.textContent = "Move and swing.";
+  updateBattingDebug();
+}
+
+function finishBattingPitch(message = "READY") {
+  battingState.isBallActive = false;
+  hideBattingBall();
+  updateBattingCall(message);
+  battingState.nextPitchAt = performance.now() + 700;
+}
+
+function animateBatting(timeStamp) {
+  if (!battingState.isRunning) {
+    return;
+  }
+
+  if (!battingState.lastTick) {
+    battingState.lastTick = timeStamp;
+  }
+
+  const deltaSeconds = Math.min((timeStamp - battingState.lastTick) / 1000, 0.032);
+  battingState.lastTick = timeStamp;
+
+  if (!battingState.isBallActive && timeStamp >= battingState.nextPitchAt) {
+    spawnBattingPitch();
+  }
+
+  if (battingState.isSwinging) {
+    battingState.swingTimer -= deltaSeconds;
+    battingState.swingElapsed += deltaSeconds;
+    const swingProgress = clamp(battingState.swingElapsed / physics.battingSwingDuration, 0, 1);
+    const swingEase = 1 - (1 - swingProgress) * (1 - swingProgress);
+    const swingAngle =
+      battingState.swingStartAngle + (battingState.swingEndAngle - battingState.swingStartAngle) * swingEase;
+    setBatPosition(battingState.batX, battingState.batY, swingAngle);
+
+    if (battingState.swingTimer <= 0) {
+      battingState.isSwinging = false;
+      elements.bat.classList.remove("is-swinging");
+      setBatPosition(battingState.batX, battingState.batY, battingState.swingEndAngle);
+    }
+  }
+
+  if (battingState.isBallActive) {
+    const previousX = battingState.ballX;
+    const previousY = battingState.ballY;
+    const rect = elements.battingSurface.getBoundingClientRect();
+
+    if (!battingState.isHit) {
+      battingState.pitchElapsed += deltaSeconds;
+      battingState.velocityX += battingState.curveAccelerationX * deltaSeconds;
+    } else {
+      const hitDragFactor = Math.exp(-physics.battingHitDragPerSecond * deltaSeconds);
+      battingState.velocityX *= hitDragFactor;
+      battingState.velocityY *= hitDragFactor;
+    }
+
+    battingState.ballX += battingState.velocityX * deltaSeconds;
+    battingState.ballY += battingState.velocityY * deltaSeconds;
+    battingState.currentSpeed = Math.hypot(battingState.velocityX, battingState.velocityY);
+    setBattingBallPosition(battingState.ballX, battingState.ballY);
+
+    if (battingState.isSwinging && !battingState.isHit && distanceToBatSegment(battingState.ballX, battingState.ballY) <= 16) {
+      if (isBallInBattingContactBand()) {
+        reflectBallFromBat();
+      } else {
+        battingState.pitchJudged = true;
+        updateBattingCall("MISS", "is-ball");
+      }
+    }
+
+    if (!battingState.pitchJudged && !battingState.isHit) {
+      const call = getZonePathCall(
+        previousX,
+        previousY,
+        battingState.ballX,
+        battingState.ballY,
+        getBattingStrikeZoneRect(),
+        "down",
+      );
+
+      if (call) {
+        battingState.pitchJudged = true;
+        updateBattingCall(call === "strike" ? "STRIKE" : "BALL", call === "strike" ? "is-strike" : "is-ball");
+      }
+    }
+
+    const isOutside =
+      battingState.ballY > rect.height + 80 ||
+      battingState.ballY < -120 ||
+      battingState.ballX < -120 ||
+      battingState.ballX > rect.width + 120;
+    const isStopped = battingState.isHit && battingState.currentSpeed <= physics.battingStopSpeed;
+
+    if (isOutside || isStopped) {
+      finishBattingPitch(battingState.isHit ? "HIT" : battingState.pitchJudged ? elements.battingCall.textContent : "BALL");
+    }
+  }
+
+  updateBattingDebug();
+  battingState.animationFrameId = window.requestAnimationFrame(animateBatting);
 }
 
 function animatePitch(timeStamp) {
@@ -754,12 +1279,82 @@ function endPointerControl(event) {
   startPitch(vector);
 }
 
+function getBattingSurfacePoint(event) {
+  const rect = elements.battingSurface.getBoundingClientRect();
+
+  return {
+    x: event.clientX - rect.left,
+    y: event.clientY - rect.top,
+  };
+}
+
+function beginBattingPointer(event) {
+  if (battingState.activePointerId !== null) {
+    return;
+  }
+
+  battingState.activePointerId = event.pointerId;
+  elements.battingSurface.setPointerCapture(event.pointerId);
+  const point = getBattingSurfacePoint(event);
+  const batPosition = getDefaultBatPosition();
+  battingState.trail = [];
+  battingState.batBaseX = batPosition.x;
+  battingState.batBaseY = batPosition.y;
+  battingState.batPointerStartX = point.x;
+  battingState.batPointerStartY = point.y;
+  battingState.batReadyAngle = physics.batRestAngle;
+  hideBatDebugAngles();
+  setBatPosition(batPosition.x, batPosition.y, physics.batRestAngle);
+  pushBattingTrailPoint(point.x, point.y, event.timeStamp);
+}
+
+function moveBattingPointer(event) {
+  if (event.pointerId !== battingState.activePointerId) {
+    return;
+  }
+
+  const point = getBattingSurfacePoint(event);
+  if (!battingState.isSwinging) {
+    placeBatOnSwingLine(point.x, point.y);
+  }
+  pushBattingTrailPoint(point.x, point.y, event.timeStamp);
+
+  const vector = getBattingPointerVector();
+  battingState.swingGateSpeed = Math.max(0, -vector.velocityY);
+  updateBattingDebug();
+
+  if (battingState.swingGateSpeed >= physics.battingSwingThreshold) {
+    startBattingSwing(vector);
+  }
+}
+
+function endBattingPointer(event) {
+  if (event.pointerId !== battingState.activePointerId) {
+    return;
+  }
+
+  const point = getBattingSurfacePoint(event);
+  if (!battingState.isSwinging) {
+    placeBatOnSwingLine(point.x, point.y);
+  }
+  pushBattingTrailPoint(point.x, point.y, event.timeStamp);
+  battingState.activePointerId = null;
+  battingState.trail = [];
+}
+
 elements.openPitchPrototype.addEventListener("click", showPrototypeScreen);
+elements.openBattingPrototype.addEventListener("click", showBattingScreen);
 elements.backButton.addEventListener("click", showMainScreen);
+elements.battingBackButton.addEventListener("click", showMainScreen);
 
 elements.pitchSurface.addEventListener("pointerdown", beginPointerControl);
 elements.pitchSurface.addEventListener("pointermove", movePointerControl);
 elements.pitchSurface.addEventListener("pointerup", endPointerControl);
 elements.pitchSurface.addEventListener("pointercancel", endPointerControl);
+
+elements.battingSurface.addEventListener("pointerdown", beginBattingPointer);
+elements.battingSurface.addEventListener("pointermove", moveBattingPointer);
+elements.battingSurface.addEventListener("pointerup", endBattingPointer);
+elements.battingSurface.addEventListener("pointercancel", endBattingPointer);
 
 showMainScreen();
