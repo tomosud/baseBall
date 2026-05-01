@@ -36,6 +36,7 @@ const battingState = {
   isRunning: false,
   isBallActive: false,
   isHit: false,
+  isResting: false,
   isSwinging: false,
   swingTimer: 0,
   nextPitchAt: 0,
@@ -105,6 +106,7 @@ const elements = {
   battingDebugPower: document.getElementById("battingDebugPower"),
   battingDebugSwingGate: document.getElementById("battingDebugSwingGate"),
   battingSwingBar: document.getElementById("battingSwingBar"),
+  battingDebugBallSpeed: document.getElementById("battingDebugBallSpeed"),
   battingBall: document.getElementById("battingBall"),
   batHitAngle: document.getElementById("batHitAngle"),
   batReflectAngle: document.getElementById("batReflectAngle"),
@@ -146,6 +148,8 @@ const physics = {
   battingSwingDuration: 0.033,
   battingHitDragPerSecond: 1.1,
   battingStopSpeed: 18,
+  battingRestSpeed: 100,
+  battingEdgeBounceRestitution: 0.62,
   batHitPowerScale: 0.55,
   batMoveScale: 1 / 3,
   batMoveYScale: 1 / 3,
@@ -669,6 +673,7 @@ function updateBattingDebug() {
     100,
   ).toFixed(1)}%`;
   elements.battingSwingBar.classList.toggle("is-ready", battingState.swingGateSpeed >= physics.battingSwingThreshold);
+  elements.battingDebugBallSpeed.textContent = battingState.currentSpeed.toFixed(0);
 }
 
 function getBattingStrikeZoneRect() {
@@ -881,12 +886,35 @@ function reflectBallFromBat() {
   elements.battingHint.textContent = "HIT";
 }
 
+function applyBattingEdgeBounce(rect) {
+  const margin = 8;
+  if (battingState.ballX <= margin && battingState.velocityX < 0) {
+    battingState.ballX = margin;
+    battingState.velocityX *= -physics.battingEdgeBounceRestitution;
+    battingState.velocityY *= physics.battingEdgeBounceRestitution;
+  } else if (battingState.ballX >= rect.width - margin && battingState.velocityX > 0) {
+    battingState.ballX = rect.width - margin;
+    battingState.velocityX *= -physics.battingEdgeBounceRestitution;
+    battingState.velocityY *= physics.battingEdgeBounceRestitution;
+  }
+  if (battingState.ballY <= margin && battingState.velocityY < 0) {
+    battingState.ballY = margin;
+    battingState.velocityY *= -physics.battingEdgeBounceRestitution;
+    battingState.velocityX *= physics.battingEdgeBounceRestitution;
+  } else if (battingState.ballY >= rect.height - margin && battingState.velocityY > 0) {
+    battingState.ballY = rect.height - margin;
+    battingState.velocityY *= -physics.battingEdgeBounceRestitution;
+    battingState.velocityX *= physics.battingEdgeBounceRestitution;
+  }
+}
+
 function resetBattingState() {
   stopBattingAnimation();
   battingState.activePointerId = null;
   battingState.trail = [];
   battingState.isBallActive = false;
   battingState.isHit = false;
+  battingState.isResting = false;
   battingState.isSwinging = false;
   battingState.swingTimer = 0;
   battingState.nextPitchAt = 0;
@@ -906,6 +934,7 @@ function resetBattingState() {
   battingState.swingStartAngle = physics.batRestAngle;
   battingState.swingEndAngle = -physics.batRestAngle;
   elements.bat.classList.remove("is-swinging", "is-hit");
+  elements.battingBall.classList.remove("is-resting");
   hideBatDebugAngles();
   hideBattingBall();
   const batPosition = getDefaultBatPosition();
@@ -936,7 +965,9 @@ function spawnBattingPitch() {
   battingState.pitchJudged = false;
   battingState.isBallActive = true;
   battingState.isHit = false;
+  battingState.isResting = false;
   elements.bat.classList.remove("is-hit");
+  elements.battingBall.classList.remove("is-resting");
   hideBatDebugAngles();
   setBattingBallPosition(startX, startY);
   showBattingBall();
@@ -1003,6 +1034,11 @@ function animateBatting(timeStamp) {
     battingState.currentSpeed = Math.hypot(battingState.velocityX, battingState.velocityY);
     setBattingBallPosition(battingState.ballX, battingState.ballY);
 
+    if (battingState.isHit) {
+      applyBattingEdgeBounce(rect);
+      setBattingBallPosition(battingState.ballX, battingState.ballY);
+    }
+
     if (battingState.isSwinging && !battingState.isHit && distanceToBatSegment(battingState.ballX, battingState.ballY) <= 16) {
       if (isBallInBattingContactBand()) {
         reflectBallFromBat();
@@ -1033,9 +1069,18 @@ function animateBatting(timeStamp) {
       battingState.ballY < -120 ||
       battingState.ballX < -120 ||
       battingState.ballX > rect.width + 120;
+    const isResting = battingState.isHit && !battingState.isResting && battingState.currentSpeed <= physics.battingRestSpeed;
     const isStopped = battingState.isHit && battingState.currentSpeed <= physics.battingStopSpeed;
 
-    if (isOutside || isStopped) {
+    if (isResting) {
+      battingState.isResting = true;
+      elements.battingBall.classList.add("is-resting");
+    }
+
+    if (isStopped) {
+      battingState.isBallActive = false;
+      battingState.nextPitchAt = performance.now() + 700;
+    } else if (isOutside) {
       finishBattingPitch(battingState.isHit ? "HIT" : battingState.pitchJudged ? elements.battingCall.textContent : "BALL");
     }
   }
