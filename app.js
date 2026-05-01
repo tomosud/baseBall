@@ -57,8 +57,8 @@ const physics = {
   rollTriggerSpeed: 255,
   rollBaseSpeed: 170,
   rollSpeedFactor: 0.18,
-  rollDragPerSecond: 5.4,
-  rollStopSpeed: 14,
+  rollDragPerSecond: 2.6,
+  rollStopSpeed: 8,
   rollTopBand: 56,
   softReleaseSpeed: 110,
   softReleaseForwardSpeed: 150,
@@ -224,7 +224,7 @@ function applyTopDownBounce() {
   const deflectionSpeed = Math.max(Math.abs(state.velocityX) * 0.7, Math.min(120, preBounceSpeed * 0.45));
   state.velocityX = escapeDirection * deflectionSpeed;
   state.velocityY = -Math.max(Math.abs(state.velocityY) * dynamicForwardLoss, physics.minForwardSpeed);
-  clampVelocityToSpeed(preBounceSpeed * 0.8);
+  clampVelocityToSpeed(preBounceSpeed * 0.9);
   state.currentSpeed = Math.hypot(state.velocityX, state.velocityY);
 
   state.height = 0;
@@ -271,7 +271,7 @@ function startRolling() {
 
   state.velocityX = rollSpeed * blendedDirection.x * Math.max(0.9, releaseSideWeight);
   state.velocityY = rollSpeed * blendedDirection.y * 0.5;
-  clampVelocityToSpeed(preRollSpeed * 0.8);
+  clampVelocityToSpeed(preRollSpeed);
   state.currentSpeed = Math.hypot(state.velocityX, state.velocityY);
   updateHint("転がり中");
 }
