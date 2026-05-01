@@ -155,7 +155,8 @@ function getStrikeZoneRect() {
   return {
     left: zoneRect.left - surfaceRect.left,
     right: zoneRect.right - surfaceRect.left,
-    y: zoneRect.top - surfaceRect.top,
+    top: zoneRect.top - surfaceRect.top,
+    bottom: zoneRect.bottom - surfaceRect.top,
   };
 }
 
@@ -165,14 +166,20 @@ function judgePitchOnPath(previousX, previousY, nextX, nextY) {
   }
 
   const zone = getStrikeZoneRect();
-  const crossedLine = previousY > zone.y && nextY <= zone.y;
+  const crossedZone = previousY > zone.bottom && nextY <= zone.bottom;
 
-  if (!crossedLine) {
+  if (!crossedZone) {
+    return;
+  }
+
+  const deltaY = nextY - previousY;
+
+  if (Math.abs(deltaY) < 0.0001) {
     return;
   }
 
   state.pitchJudged = true;
-  const ratio = (zone.y - previousY) / Math.max(nextY - previousY, -0.0001);
+  const ratio = (zone.bottom - previousY) / deltaY;
   const lineX = previousX + (nextX - previousX) * ratio;
 
   if (lineX >= zone.left && lineX <= zone.right && state.bounceCount === 0) {
@@ -407,7 +414,7 @@ function animatePitch(timeStamp) {
     state.height += state.heightVelocity * deltaSeconds;
 
     const zone = getStrikeZoneRect();
-    const landedBeforeZone = previousHeight > 0 && state.height <= 0 && state.ballY > zone.y;
+    const landedBeforeZone = previousHeight > 0 && state.height <= 0 && state.ballY > zone.bottom;
 
     if (state.flightElapsed >= state.bounceMinTime && landedBeforeZone && state.heightVelocity < 0) {
       applyTopDownBounce();
@@ -438,7 +445,7 @@ function animatePitch(timeStamp) {
 
   const zone = getStrikeZoneRect();
 
-  if (!state.pitchJudged && (state.ballX < -28 || state.ballX > rect.width + 28) && state.ballY <= zone.y + 36) {
+  if (!state.pitchJudged && (state.ballX < -28 || state.ballX > rect.width + 28) && state.ballY <= zone.bottom) {
     state.pitchJudged = true;
     updatePitchCall("BALL", "is-ball");
   }
@@ -498,7 +505,7 @@ function startPitch(vector) {
   state.heightVelocity = 0;
   state.flightGravity = Math.max(120, physics.heightGravity - Math.min(90, scaledSpeed * 0.018));
   const zone = getStrikeZoneRect();
-  state.bounceMinY = zone.y + (state.ballY - zone.y) * 0.2;
+  state.bounceMinY = zone.top + (state.ballY - zone.top) * 0.2;
   state.flightElapsed = 0;
   state.bounceMinTime = 0.38 + Math.min(0.22, scaledSpeed / 12000);
   state.lastReleaseSpeed = scaledSpeed;

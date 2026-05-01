@@ -1,0 +1,4 @@
+- main [ref=e2]:
+  - generic [ref=e3]:
+    - heading "野球盤" [level=1] [ref=e4]
+    - button "投球プロト" [ref=e5]
