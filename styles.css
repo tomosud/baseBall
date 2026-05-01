@@ -7,7 +7,7 @@
   --muted: rgba(242, 242, 242, 0.7);
   --line: rgba(255, 255, 255, 0.16);
   --button: #2c2c2c;
-  --ball-size: 28px;
+  --ball-size: 14px;
 }
 
 * {
@@ -152,7 +152,7 @@ button {
   position: absolute;
   top: calc(env(safe-area-inset-top) + 8px);
   left: 50%;
-  width: min(111px, 24.7vw);
+  width: min(80px, 18vw);
   height: 4px;
   transform: translateX(-50%);
   border-radius: 999px;
@@ -218,6 +218,11 @@ button {
 
 .ball.is-bounced {
   background: #ff3b30;
+  width: 20px;
+  height: 20px;
+  margin-left: -10px;
+  margin-top: -10px;
+  box-shadow: 0 4px 14px rgba(255, 59, 48, 0.75);
 }
 
 .hint {

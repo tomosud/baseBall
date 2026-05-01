@@ -11,7 +11,12 @@ const state = {
   releaseDirectionX: 0,
   releaseDirectionY: -1,
   height: 0,
+  initialHeight: 0,
   heightVelocity: 0,
+  flightGravity: 0,
+  bounceMinY: 0,
+  flightElapsed: 0,
+  bounceMinTime: 0,
   ballX: 0,
   ballY: 0,
   velocityX: 0,
@@ -44,6 +49,8 @@ const physics = {
   dragPerSecond: 1.2,
   sideDragPerSecond: 3.8,
   minForwardSpeed: 180,
+  maxForwardSpeed: 980,
+  maxSideSpeed: 240,
   bounceForwardLoss: 0.72,
   bounceForwardBoost: 90,
   maxBounces: 3,
@@ -82,6 +89,10 @@ function normalizeVector(x, y, fallbackX = 0, fallbackY = -1) {
   };
 }
 
+function compressScreenVelocity(value, limit) {
+  return Math.tanh(value / limit) * limit;
+}
+
 function updatePitchCall(text, kind = "") {
   elements.pitchCall.textContent = text;
   elements.pitchCall.classList.remove("is-strike", "is-ball");
@@ -100,8 +111,10 @@ function updateDebug() {
   elements.debugReleaseSpeed.textContent = state.lastReleaseSpeed.toFixed(0);
   elements.debugCurrentSpeed.textContent = state.currentSpeed.toFixed(0);
   elements.debugVelocity.textContent = `${state.velocityX.toFixed(0)} / ${state.velocityY.toFixed(0)}`;
-  elements.speedHistory.innerHTML = state.speedHistory
-    .map((value) => `<li>${value.toFixed(0)}</li>`)
+  const historyItems = Array.from({ length: 5 }, (_, index) => state.speedHistory[index] ?? null);
+
+  elements.speedHistory.innerHTML = historyItems
+    .map((value, index) => `<li>${index + 1}. ${value === null ? "-" : value.toFixed(0)}</li>`)
     .join("");
 }
 
@@ -118,10 +131,14 @@ function resetPitchState() {
   state.releaseDirectionX = 0;
   state.releaseDirectionY = -1;
   state.height = 0;
+  state.initialHeight = 0;
   state.heightVelocity = 0;
+  state.flightGravity = physics.heightGravity;
+  state.bounceMinY = 0;
+  state.flightElapsed = 0;
+  state.bounceMinTime = 0;
   state.lastReleaseSpeed = 0;
   state.currentSpeed = 0;
-  state.speedHistory = [];
   state.velocityX = 0;
   state.velocityY = 0;
   state.lastTick = 0;
@@ -142,7 +159,7 @@ function getStrikeZoneRect() {
   };
 }
 
-function judgePitchOnPath(previousX, previousY, nextX, nextY) {
+function judgePitchOnPath(previousX, previousY, nextX, nextY, previousHeight, currentHeight) {
   if (state.pitchJudged) {
     return;
   }
@@ -157,8 +174,9 @@ function judgePitchOnPath(previousX, previousY, nextX, nextY) {
   state.pitchJudged = true;
   const ratio = (zone.y - previousY) / Math.max(nextY - previousY, -0.0001);
   const lineX = previousX + (nextX - previousX) * ratio;
+  const heightAtCross = previousHeight + (currentHeight - previousHeight) * ratio;
 
-  if (lineX >= zone.left && lineX <= zone.right) {
+  if (lineX >= zone.left && lineX <= zone.right && heightAtCross >= 0 && heightAtCross <= 55) {
     updatePitchCall("STRIKE", "is-strike");
     return;
   }
@@ -175,12 +193,20 @@ function applyTopDownBounce() {
 
   const impactVelocity = Math.abs(state.heightVelocity);
   const slowFactor = Math.min(1, Math.max(0, (4200 - state.lastReleaseSpeed) / 3200));
+  const zone = getStrikeZoneRect();
+  const zoneCenterX = (zone.left + zone.right) * 0.5;
+  const escapeDirection = state.ballX <= zoneCenterX ? -1 : 1;
+  const escapeX = escapeDirection < 0 ? zone.left - 18 : zone.right + 18;
 
   setBallBounced(true);
   state.pitchJudged = true;
-  updatePitchCall("BALL", "is-ball");
+  updatePitchCall("Bound!", "is-ball");
 
-  state.velocityX *= 0.45;
+  if (state.ballX >= zone.left - 10 && state.ballX <= zone.right + 10) {
+    state.ballX = escapeX;
+  }
+
+  state.velocityX = escapeDirection * Math.max(Math.abs(state.velocityX) * 0.7, 120);
   state.velocityY = -Math.max(
     Math.abs(state.velocityY) * physics.bounceForwardLoss + physics.bounceForwardBoost * (1 - slowFactor * 0.35),
     physics.minForwardSpeed,
@@ -257,6 +283,7 @@ function showMainScreen() {
 function showPrototypeScreen() {
   elements.mainScreen.classList.add("is-hidden");
   elements.prototypeScreen.classList.remove("is-hidden");
+  state.speedHistory = [];
   elements.hintText.textContent = "指を置いて位置を決めて、上にスワイプして投げる";
   resetPitchState();
 }
@@ -348,17 +375,21 @@ function animatePitch(timeStamp) {
 
   const previousX = state.ballX;
   const previousY = state.ballY;
+  const previousHeight = state.height;
   const rect = elements.pitchSurface.getBoundingClientRect();
 
   if (state.motionMode === "flight") {
+    state.flightElapsed += deltaSeconds;
     const dragFactor = Math.exp(-physics.dragPerSecond * deltaSeconds);
     const sideDragFactor = Math.exp(-physics.sideDragPerSecond * deltaSeconds);
+    const heightRatio = state.initialHeight > 0 ? Math.max(0, Math.min(1, state.height / state.initialHeight)) : 0;
+    const forwardFloor = physics.minForwardSpeed * Math.pow(heightRatio, 1.35) * 0.42;
 
     state.velocityX *= sideDragFactor;
     state.velocityY *= dragFactor;
 
-    if (state.velocityY > -physics.minForwardSpeed) {
-      state.velocityY = -physics.minForwardSpeed;
+    if (forwardFloor > 0 && state.velocityY > -forwardFloor) {
+      state.velocityY = -forwardFloor;
     }
 
     const deltaX = state.velocityX * deltaSeconds;
@@ -367,10 +398,13 @@ function animatePitch(timeStamp) {
     state.ballX += deltaX;
     state.ballY += deltaY;
 
-    state.heightVelocity -= physics.heightGravity * deltaSeconds;
+    state.heightVelocity -= state.flightGravity * deltaSeconds;
     state.height += state.heightVelocity * deltaSeconds;
 
-    if (state.height <= 0 && state.heightVelocity < 0) {
+    const zone = getStrikeZoneRect();
+    const landedBeforeZone = previousHeight > 0 && state.height <= 0 && state.ballY > zone.y;
+
+    if (state.flightElapsed >= state.bounceMinTime && landedBeforeZone && state.heightVelocity < 0) {
       applyTopDownBounce();
     }
 
@@ -395,9 +429,11 @@ function animatePitch(timeStamp) {
   setBallPosition(state.ballX, state.ballY);
   updateHeightDebug();
 
-  judgePitchOnPath(previousX, previousY, state.ballX, state.ballY);
+  judgePitchOnPath(previousX, previousY, state.ballX, state.ballY, previousHeight, state.height);
 
-  if (!state.pitchJudged && (state.ballX < -28 || state.ballX > rect.width + 28)) {
+  const zone = getStrikeZoneRect();
+
+  if (!state.pitchJudged && (state.ballX < -28 || state.ballX > rect.width + 28) && state.ballY <= zone.y + 36) {
     state.pitchJudged = true;
     updatePitchCall("BALL", "is-ball");
   }
@@ -420,10 +456,13 @@ function animatePitch(timeStamp) {
     stopPitchAnimation();
     hideBall();
     updateHint("もう一度、指を置いて上にスワイプ");
+    state.height = 0;
+    state.heightVelocity = 0;
     state.currentSpeed = 0;
     state.velocityX = 0;
     state.velocityY = 0;
     updateDebug();
+    updateHeightDebug();
     return;
   }
 
@@ -444,10 +483,19 @@ function startPitch(vector) {
   const scaledVelocityX = vector.velocityX * physics.speedScale;
   const scaledVelocityY = vector.velocityY * physics.speedScale;
   const scaledSpeed = vector.speed * physics.speedScale;
-  state.velocityX = scaledVelocityX * 0.18;
-  state.velocityY = Math.min(scaledVelocityY, -physics.minForwardSpeed * physics.speedScale);
-  state.height = physics.releaseHeight + scaledSpeed * physics.releaseHeightSpeedFactor;
-  state.heightVelocity = -12;
+  state.velocityX = compressScreenVelocity(scaledVelocityX * 0.45, physics.maxSideSpeed);
+  state.velocityY = Math.min(
+    compressScreenVelocity(scaledVelocityY, physics.maxForwardSpeed),
+    -physics.minForwardSpeed * physics.speedScale * 0.55,
+  );
+  state.initialHeight = Math.min(92, physics.releaseHeight + scaledSpeed * physics.releaseHeightSpeedFactor * 2.2);
+  state.height = state.initialHeight;
+  state.heightVelocity = 0;
+  state.flightGravity = Math.max(120, physics.heightGravity - Math.min(90, scaledSpeed * 0.018));
+  const zone = getStrikeZoneRect();
+  state.bounceMinY = zone.y + (state.ballY - zone.y) * 0.2;
+  state.flightElapsed = 0;
+  state.bounceMinTime = 0.38 + Math.min(0.22, scaledSpeed / 12000);
   state.lastReleaseSpeed = scaledSpeed;
   state.currentSpeed = scaledSpeed;
   pushSpeedHistory(scaledSpeed);
