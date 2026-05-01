@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>野球盤 投球プロト</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="screen main-screen" id="mainScreen">
+      <div class="main-box">
+        <h1>野球盤</h1>
+        <button type="button" class="main-button" id="openPitchPrototype">投球プロト</button>
+      </div>
+    </main>
+
+    <section class="screen prototype-screen is-hidden" id="prototypeScreen" aria-label="投球プロトタイプ">
+      <button type="button" class="back-button" id="backButton">戻る</button>
+      <div class="pitch-surface" id="pitchSurface">
+        <div class="ball is-hidden" id="ball" aria-hidden="true"></div>
+        <p class="hint" id="hintText">指を置いて位置を決めて、上にスワイプして投げる</p>
+      </div>
+    </section>
+
+    <script src="app.js"></script>
+  </body>
+</html>
