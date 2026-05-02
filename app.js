@@ -397,6 +397,8 @@ function gameDoChange() {
 function gameDoGameSet() {
   gameState.phase = "gameset";
   clearSaveData();
+  playingState.isRunning = false;
+  stopPlayingAnimation();
   const [blue, red] = gameState.score;
   let winner;
   if (blue > red) winner = "青軍の勝ち！";
@@ -2552,6 +2554,8 @@ function animatePlaying(timeStamp) {
       // 完全停止: ピッチャーが拾えるように isPitched を false に
       playingState.isBallActive = false;
       playingState.isPitched = false;
+      playingState.pitchJudged = false;
+      playingState.swingMissed = false;
     } else if (isRollStopped || isFlightStuck || isOutside) {
       if (!playingState.pitchJudged) {
         playingState.pitchJudged = true;
@@ -2570,6 +2574,7 @@ function animatePlaying(timeStamp) {
 function showPlayingScreen() {
   stopPitchAnimation();
   stopBattingAnimation();
+  stopPlayingAnimation();
   hideBall();
   hideBattingBall();
   elements.mainScreen.classList.add("is-hidden");
@@ -2654,6 +2659,8 @@ function beginPlayingPointer(event) {
       playingState.isHit = false;
       playingState.isResting = false;
       playingState.isPitched = false;
+      playingState.pitchJudged = false;
+      playingState.swingMissed = false;
       elements.playingBall.classList.remove("is-resting");
       hidePlayingBall();
     }
