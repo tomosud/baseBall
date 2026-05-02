@@ -181,7 +181,6 @@ const elements = {
   battingHint: document.getElementById("battingHint"),
   openPlayingPrototype: document.getElementById("openPlayingPrototype"),
   playingScreen: document.getElementById("playingScreen"),
-  playingBackButton: document.getElementById("playingBackButton"),
   playingSurface: document.getElementById("playingSurface"),
   playingStrikeZone: document.getElementById("playingStrikeZone"),
   playingCall: document.getElementById("playingCall"),
@@ -198,6 +197,7 @@ const elements = {
   playingLabelPitcher: document.getElementById("playingLabelPitcher"),
   playingLabelBatter: document.getElementById("playingLabelBatter"),
   playingRunLabel: document.getElementById("playingRunLabel"),
+  playingTopWall: document.getElementById("playingTopWall"),
   playingBase0: document.getElementById("playingBase0"),
   playingBase1: document.getElementById("playingBase1"),
   playingBase2: document.getElementById("playingBase2"),
@@ -1663,7 +1663,6 @@ elements.openBattingPrototype.addEventListener("click", showBattingScreen);
 elements.openPlayingPrototype.addEventListener("click", showPlayingScreen);
 elements.backButton.addEventListener("click", showMainScreen);
 elements.battingBackButton.addEventListener("click", showMainScreen);
-elements.playingBackButton.addEventListener("click", showMainScreen);
 
 elements.pitchSurface.addEventListener("pointerdown", beginPointerControl);
 elements.pitchSurface.addEventListener("pointermove", movePointerControl);
@@ -1758,7 +1757,7 @@ const RUNNER_COLORS = ["color-0", "color-1", "color-2"];
 function getPlayingBasePositions(rect) {
   return [
     { x: rect.width * 0.94, y: rect.height * 0.36 }, // 1塁（右端）
-    { x: rect.width * 0.50, y: rect.height * 0.05 }, // 2塁（上端中央）
+    { x: rect.width * 0.50, y: rect.height * 0.18 }, // 2塁（上端中央）
     { x: rect.width * 0.06, y: rect.height * 0.36 }, // 3塁（左端）
   ];
 }
@@ -1816,7 +1815,7 @@ function spawnRunnerOnHit() {
       progress: 0,
       state: "running",
       colorClass,
-      speed: 60,
+      speed: 101,
     });
   }
 
@@ -1974,8 +1973,36 @@ function startPlayingRolling() {
   startPitchModelRolling(playingState);
 }
 
+function getPlayingTopWallY() {
+  const surfaceRect = elements.playingSurface.getBoundingClientRect();
+  const wallRect = elements.playingTopWall.getBoundingClientRect();
+  return wallRect.bottom - surfaceRect.top;
+}
+
 function applyPlayingEdgeBounce(rect) {
-  applyHitBallEdgeBounce(playingState, rect);
+  const model = playingState;
+  const margin = 8;
+  const topWallY = getPlayingTopWallY();
+
+  if (model.ballX <= margin && model.velocityX < 0) {
+    model.ballX = margin;
+    model.velocityX *= -physics.battingEdgeBounceRestitution;
+    model.velocityY *= physics.battingEdgeBounceRestitution;
+  } else if (model.ballX >= rect.width - margin && model.velocityX > 0) {
+    model.ballX = rect.width - margin;
+    model.velocityX *= -physics.battingEdgeBounceRestitution;
+    model.velocityY *= physics.battingEdgeBounceRestitution;
+  }
+
+  if (model.ballY <= topWallY && model.velocityY < 0) {
+    model.ballY = topWallY;
+    model.velocityY *= -physics.battingEdgeBounceRestitution;
+    model.velocityX *= physics.battingEdgeBounceRestitution;
+  } else if (model.ballY >= rect.height - margin && model.velocityY > 0) {
+    model.ballY = rect.height - margin;
+    model.velocityY *= -physics.battingEdgeBounceRestitution;
+    model.velocityX *= physics.battingEdgeBounceRestitution;
+  }
 }
 
 function startPlayingSwing(vector) {

@@ -447,6 +447,17 @@ button {
   user-select: none;
 }
 
+.playing-top-wall {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(env(safe-area-inset-top) + 52px);
+  height: 0;
+  border-top: 2px solid rgba(255, 255, 255, 0.35);
+  pointer-events: none;
+  z-index: 3;
+}
+
 .playing-divider {
   position: absolute;
   left: 0;

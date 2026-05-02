@@ -17,8 +17,8 @@
     </main>
 
     <section class="screen prototype-screen is-hidden" id="playingScreen" aria-label="playing prototype A">
-      <button type="button" class="back-button" id="playingBackButton">Back</button>
       <div class="playing-surface" id="playingSurface">
+        <div class="playing-top-wall" id="playingTopWall" aria-hidden="true"></div>
         <div class="playing-divider" id="playingDivider" aria-hidden="true"></div>
         <div class="playing-label is-pitcher" id="playingLabelPitcher" aria-hidden="true">Pitcher</div>
         <div class="playing-label is-batter" id="playingLabelBatter" aria-hidden="true">Batter</div>
@@ -29,7 +29,7 @@
           <div class="batting-contact-line is-bottom"></div>
         </div>
         <div class="pitch-call playing-call" id="playingCall">READY</div>
-        <div class="debug-panel playing-debug" aria-live="polite">
+        <div class="debug-panel playing-debug is-hidden" aria-live="polite">
           <p>pitch km/h: <span id="playingDebugKmh">0</span></p>
           <p>ball speed: <span id="playingDebugBallSpeed">0</span></p>
           <p>swing gate: <span id="playingDebugSwingGate">0</span></p>
