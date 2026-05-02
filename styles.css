@@ -150,6 +150,7 @@ button {
 
 .strike-zone {
   position: absolute;
+  z-index: 2;
   top: calc(env(safe-area-inset-top) + 8px);
   left: 50%;
   width: min(80px, 18vw);
@@ -171,7 +172,7 @@ button {
   bottom: calc(env(safe-area-inset-bottom) + 84px);
   left: 0;
   height: 36px;
-  z-index: 1;
+  z-index: 0;
   pointer-events: none;
 }
 
@@ -182,10 +183,10 @@ button {
   height: 3px;
   background: repeating-linear-gradient(
     90deg,
-    rgba(255, 159, 10, 0.95) 0 18px,
+    rgba(255, 159, 10, 0.52) 0 18px,
     transparent 18px 28px
   );
-  box-shadow: 0 0 10px rgba(255, 159, 10, 0.55);
+  box-shadow: 0 0 8px rgba(255, 159, 10, 0.26);
 }
 
 .batting-contact-line.is-top {
@@ -385,7 +386,7 @@ button {
   width: 59px;
   height: 8px;
   clip-path: polygon(0 28%, 100% 0, 100% 100%, 0 72%);
-  background: linear-gradient(90deg, rgba(130, 130, 130, 0.72), rgba(185, 185, 185, 0.94));
+  background: #787878;
   box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.25);
   transform: translate(0, 0) rotate(36deg);
   transform-origin: 0 50%;
@@ -393,8 +394,8 @@ button {
 }
 
 .bat.is-swinging {
-  background: linear-gradient(90deg, rgba(255, 159, 10, 0.75), #ff9f0a);
-  box-shadow: 0 0 18px rgba(255, 159, 10, 0.65);
+  background: #ffcf33;
+  box-shadow: 0 0 22px rgba(255, 207, 51, 0.9);
 }
 
 .bat.is-hit {

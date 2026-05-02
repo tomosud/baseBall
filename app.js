@@ -222,6 +222,7 @@ const physics = {
   battingMinRawSpeed: 3000,
   battingMaxRawSpeed: 4500,
   battingSpeedScale: 0.18,
+  battingContactTopAllowance: 4,
   battingSwingThreshold: 620,
   battingSwingDuration: 0.033,
   battingHitDragPerSecond: 1.1,
@@ -597,7 +598,8 @@ function placeBatModelOnSwingLine(model, surfaceElement, getZone, setPosition, p
     pointerY === null
       ? model.batBaseY
       : model.batBaseY + (pointerY - model.batPointerStartY) * physics.batMoveYScale;
-  const clampedY = clamp(y, model.batBaseY - verticalHalfRange, model.batBaseY + verticalHalfRange);
+  const zoneCenterY = (zone.top + zone.bottom) * 0.5;
+  const clampedY = clamp(y, zoneCenterY, model.batBaseY + verticalHalfRange);
   const loadRatio =
     pointerY === null ? 0 : clamp((pointerY - model.batPointerStartY) / physics.batLoadDragDistance, 0, 1);
   const readyAngle =
@@ -696,6 +698,9 @@ function reflectBallFromBatModel(model, options) {
   model.currentSpeed = Math.hypot(model.velocityX, model.velocityY);
   model.isHit = true;
   model.pitchJudged = true;
+  if (options.missMarkerElement) {
+    options.missMarkerElement.classList.add("is-hidden");
+  }
   options.batElement.classList.add("is-hit");
   options.hitAngleElement.classList.remove("is-hidden");
   options.hitAngleElement.style.transform = `translate(${model.batX}px, ${model.batY}px) rotate(${model.batAngle}rad)`;
@@ -1058,7 +1063,7 @@ function getBattingStrikeZoneRect() {
 function isBallInBattingContactBand() {
   const zone = getBattingStrikeZoneRect();
 
-  return battingState.ballY + physics.ballRadius >= zone.top && battingState.ballY - physics.ballRadius <= zone.bottom;
+  return battingState.ballY >= zone.top - physics.battingContactTopAllowance && battingState.ballY <= zone.bottom;
 }
 
 function setBattingBallPosition(x, y) {
@@ -1168,6 +1173,7 @@ function reflectBallFromBat() {
     batElement: elements.bat,
     hitAngleElement: elements.batHitAngle,
     reflectAngleElement: elements.batReflectAngle,
+    missMarkerElement: elements.battingContactMissMarker,
     updateCall: updateBattingCall,
     hintElement: elements.battingHint,
   });
@@ -1306,7 +1312,7 @@ function animateBatting(timeStamp) {
     setBattingBallPosition(battingState.ballX, battingState.ballY);
     updateContactableBall(
       elements.battingBall,
-      battingState.isBallActive && !battingState.isHit && isBallInBattingContactBand(),
+      battingState.isBallActive && !battingState.isHit && !battingState.pitchJudged && isBallInBattingContactBand(),
     );
 
     if (battingState.isHit) {
@@ -1315,13 +1321,19 @@ function animateBatting(timeStamp) {
       setBattingBallPosition(battingState.ballX, battingState.ballY);
     }
 
-    if (battingState.isSwinging && !battingState.isHit && distanceToBatSegment(battingState.ballX, battingState.ballY) <= 16) {
+    if (
+      battingState.isSwinging &&
+      !battingState.isHit &&
+      !battingState.pitchJudged &&
+      distanceToBatSegment(battingState.ballX, battingState.ballY) <= 16
+    ) {
       if (isBallInBattingContactBand()) {
         updateContactableBall(elements.battingBall, false);
         reflectBallFromBat();
       } else {
         const contactPoint = getBatModelClosestPoint(battingState, battingState.ballX, battingState.ballY);
         showContactMissMarker(elements.battingContactMissMarker, contactPoint.x, contactPoint.y);
+        updateContactableBall(elements.battingBall, false);
         battingState.pitchJudged = true;
         updateBattingCall("MISS", "is-ball");
       }
@@ -1710,7 +1722,7 @@ function getPlayingBatHitRatio(x, y) {
 
 function isPlayingBallInContactBand() {
   const zone = getPlayingStrikeZoneRect();
-  return playingState.ballY + physics.ballRadius >= zone.top && playingState.ballY - physics.ballRadius <= zone.bottom;
+  return playingState.ballY >= zone.top - physics.battingContactTopAllowance && playingState.ballY <= zone.bottom;
 }
 
 function updatePlayingCall(text, kind = "") {
@@ -1730,6 +1742,7 @@ function reflectPlayingBallFromBat() {
     batElement: elements.playingBat,
     hitAngleElement: elements.playingBatHitAngle,
     reflectAngleElement: elements.playingBatReflectAngle,
+    missMarkerElement: elements.playingContactMissMarker,
     updateCall: updatePlayingCall,
   });
 }
@@ -1922,7 +1935,7 @@ function animatePlaying(timeStamp) {
     setPlayingBallPosition(playingState.ballX, playingState.ballY);
     updateContactableBall(
       elements.playingBall,
-      playingState.isBallActive && !playingState.isHit && isPlayingBallInContactBand(),
+      playingState.isBallActive && !playingState.isHit && !playingState.pitchJudged && isPlayingBallInContactBand(),
     );
 
     if (playingState.isHit) {
@@ -1932,13 +1945,19 @@ function animatePlaying(timeStamp) {
     }
 
     // バットとの接触判定
-    if (playingState.isSwinging && !playingState.isHit && distanceToPlayingBatSegment(playingState.ballX, playingState.ballY) <= 16) {
+    if (
+      playingState.isSwinging &&
+      !playingState.isHit &&
+      !playingState.pitchJudged &&
+      distanceToPlayingBatSegment(playingState.ballX, playingState.ballY) <= 16
+    ) {
       if (isPlayingBallInContactBand()) {
         updateContactableBall(elements.playingBall, false);
         reflectPlayingBallFromBat();
       } else {
         const contactPoint = getBatModelClosestPoint(playingState, playingState.ballX, playingState.ballY);
         showContactMissMarker(elements.playingContactMissMarker, contactPoint.x, contactPoint.y);
+        updateContactableBall(elements.playingBall, false);
         playingState.pitchJudged = true;
         updatePlayingCall("MISS", "is-ball");
       }
