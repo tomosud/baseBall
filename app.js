@@ -136,6 +136,8 @@ const playingState = {
   runners: [],
   // fielder throw state
   isFielderThrow: false,
+  // swing miss flag (reset per pitch)
+  swingMissed: false,
 };
 
 const elements = {
@@ -317,7 +319,7 @@ function gameProcessBall() {
           fromX: home.x, fromY: home.y,
           toBaseIndex: 0, progress: 0,
           state: "running", colorClass,
-          speed: 122,
+          speed: 98,
         });
         renderPlayingRunners();
       }
@@ -2032,7 +2034,7 @@ function spawnRunnerOnHit() {
       progress: 0,
       state: "running",
       colorClass,
-      speed: 122,
+      speed: 98,
     });
   }
 
@@ -2201,6 +2203,7 @@ function reflectPlayingBallFromBat() {
     missMarkerElement: elements.playingContactMissMarker,
     updateCall: updatePlayingCall,
   });
+  playingState.swingMissed = false; // ヒットしたので空振り記録をクリア
   spawnRunnerOnHit();
   resetAtBat();
 }
@@ -2327,6 +2330,11 @@ function launchPlayingBall(vector) {
 }
 
 function finishPlayingPitch(message = "READY") {
+  // 空振りがあってヒットしなかった場合のみストライク加算
+  if (playingState.swingMissed && !playingState.isHit) {
+    gameProcessStrike();
+  }
+  playingState.swingMissed = false;
   playingState.isBallActive = false;
   hidePlayingBall();
   updatePlayingCall(message);
@@ -2353,6 +2361,11 @@ function animatePlaying(timeStamp) {
       playingState.isSwinging = false;
       elements.playingBat.classList.remove("is-swinging");
       setPlayingBatPosition(playingState.batX, playingState.batY, playingState.swingEndAngle);
+      // 空振り判定: 投球後かつボールが当たっていない
+      if (playingState.isPitched && !playingState.isHit) {
+        playingState.swingMissed = true;
+        updatePlayingCall("STRIKE", "is-strike");
+      }
     }
   }
 
