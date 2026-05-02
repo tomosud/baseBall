@@ -1,5 +1,236 @@
 # 野球盤ゲーム計画
 
+---
+
+## PHASE 2: Playing Proto A をベースにした対戦ゲーム実装計画
+
+### 概要
+
+現在の Playing Proto A（縦画面、ピッチャー上半分・バッター下半分）をそのまま使い、
+BSO カウント・イニング管理・スコアボードを追加して9回制の対戦ゲームとして完成させる。
+
+---
+
+### 画面レイアウト（現状の Playing Proto A に追加）
+
+```
+┌────────────────────────────────┐
+│ 青軍  3   ● ● ○  S ● ○ ○  O ○ │  ← ステータスバー（上端）
+│ 赤軍  1      1回表              │
+│ ─────────── 上の壁 ─────────── │
+│                                │
+│      ピッチャーエリア           │
+│   ◇1塁  ◇2塁  ◇3塁            │
+│                                │
+│ ─────────── 中央破線 ───────── │
+│      バッターエリア             │
+│                                │
+│      [ストライクゾーン]          │
+│                                │
+│  pitch / Batter: swing up      │
+└────────────────────────────────┘
+```
+
+---
+
+### UI 仕様
+
+#### ステータスバー（画面上端、壁ラインの上）
+
+```
+青軍 3  B●●○ S●○○ O○  1回表
+赤軍 1
+```
+
+- 2行構成
+- チーム名: 「青軍」「赤軍」（ひとまず固定）
+- 得点: 数字
+- B（ボール）: 最大3個、●で現在カウント
+- S（ストライク）: 最大2個
+- O（アウト）: 最大2個
+- イニング: 「1回表」「1回裏」…「9回裏」
+- フォント小さめ、1行に収める
+
+---
+
+### ゲームルール
+
+#### 攻守
+
+- 攻撃側: バッター操作（画面下半分でスワイプ）
+- 守備側: ピッチャー操作（画面上半分でスワイプ）
+- 表: 青軍攻撃・赤軍守備
+- 裏: 赤軍攻撃・青軍守備
+
+#### ストライク・ボール判定（現行実装をそのまま使用）
+
+| 結果 | 条件 |
+|------|------|
+| STRIKE | バウンドなしでストライクゾーン通過 |
+| BALL | バウンドあり・ゾーン外通過・画面端素通り |
+| MISS（空振り） | バットが当たらなかった場合 → ストライク扱い |
+| HIT | バットに当たった → 打球フェーズへ |
+
+※ 現行実装ではMISS廃止済みのため、バット距離16px以内 = HIT。バット未接触でゾーン通過ならSTRIKE/BALL。
+
+#### カウント進行
+
+- ストライク（STRIKE / MISS / 空振り）: S +1
+- ボール（BALL / バウンド）: B +1
+- 3ストライク → 三振アウト
+- 4ボール → フォアボール（走者1塁へ）
+
+#### アウト
+
+- 三振
+- 走者が塁到達前にボールが塁に当たる（現行実装）
+- 2アウトでチェンジ
+
+#### 得点
+
+- 走者がホームインで1点（現行実装の showPlayingScore() をスコアに反映）
+
+#### イニング進行
+
+- 表: 青軍攻撃（3アウトでチェンジ）
+- 裏: 赤軍攻撃（3アウトでチェンジ）
+- 9回裏終了 or 裏の途中で決着 → ゲームセット
+
+#### 試合終了
+
+- 9イニング終了後、得点の多い方が勝ち
+- 同点の場合: 引き分け（延長なし・初版）
+
+---
+
+### 追加するゲーム状態（gameState オブジェクト）
+
+```js
+const gameState = {
+  inning: 1,          // 1〜9
+  isTop: true,        // true=表(青軍攻撃), false=裏(赤軍攻撃)
+  outs: 0,            // 0〜2
+  balls: 0,           // 0〜3
+  strikes: 0,         // 0〜2
+  score: [0, 0],      // [青軍, 赤軍]
+  phase: "playing",   // "playing" | "gameset"
+  atBatResult: null,  // 打席結果メモ
+};
+```
+
+---
+
+### 追加するUI要素（HTML）
+
+```html
+<!-- ステータスバー（playing-surface 内、最上部） -->
+<div class="playing-status-bar" id="playingStatusBar">
+  <div class="status-team" id="statusTeamTop">
+    <span class="status-name">青軍</span>
+    <span class="status-score" id="statusScoreTop">0</span>
+  </div>
+  <div class="status-team" id="statusTeamBottom">
+    <span class="status-name">赤軍</span>
+    <span class="status-score" id="statusScoreBottom">0</span>
+  </div>
+  <div class="status-bso">
+    <span class="status-bso-label">B</span>
+    <span class="status-dot" id="statusB0"></span>
+    <span class="status-dot" id="statusB1"></span>
+    <span class="status-dot" id="statusB2"></span>
+    <span class="status-bso-label">S</span>
+    <span class="status-dot" id="statusS0"></span>
+    <span class="status-dot" id="statusS1"></span>
+    <span class="status-bso-label">O</span>
+    <span class="status-dot" id="statusO0"></span>
+    <span class="status-dot" id="statusO1"></span>
+  </div>
+  <div class="status-inning" id="statusInning">1回表</div>
+</div>
+```
+
+---
+
+### 追加する処理フロー
+
+#### 1球の流れ
+
+```
+ピッチャーが投球
+  → ゾーン通過 → STRIKE/BALL 判定 → カウント更新
+  → バット接触 → HIT → 走者フェーズ
+    → 走者がホームイン → 得点加算
+    → 全走者停止 → 打席終了 → 次打者へ
+  → 3S → 三振 → アウト +1
+  → 4B → フォアボール → 走者1塁
+```
+
+#### チェンジ
+
+```
+アウト3 → チェンジ演出（「チェンジ！」表示）
+  → isTop 反転
+  → outs=0, balls=0, strikes=0, runners=[] リセット
+  → 9回裏終了チェック → ゲームセット or 継続
+```
+
+#### ゲームセット
+
+```
+「ゲームセット！」表示
+「○○軍の勝ち！」or「引き分け！」
+スコア最終表示
+リスタートボタン
+```
+
+---
+
+### 上の壁ラインの位置調整
+
+ステータスバーの高さ分、壁ラインを下にずらす。
+
+- 現在: `top: calc(env(safe-area-inset-top) + 52px)`
+- 変更後: `top: calc(env(safe-area-inset-top) + 80px)` 程度（ステータスバー高さによる）
+
+---
+
+### スコアボード（簡易）
+
+9イニング分の得点を1行で表示するミニスコアボード。
+ゲームセット画面または常時表示（折りたたみ）。
+
+```
+     1 2 3 4 5 6 7 8 9  計
+青軍  0 0 1 0 2 0 0 0 0   3
+赤軍  0 1 0 0 0 0 0 0 0   1
+```
+
+---
+
+### 実装順序
+
+1. `gameState` オブジェクト追加
+2. ステータスバーHTML/CSS追加
+3. `updateStatusBar()` 関数（BSO・スコア・イニング更新）
+4. 既存判定（STRIKE/BALL/HIT/走者OUT/ホームイン）にカウント処理を接続
+5. `processStrike()` / `processBall()` / `processOut()` / `processScore()` 関数
+6. チェンジ処理・イニング進行
+7. ゲームセット処理
+8. スコアボード表示
+9. PLAY BALL 開始演出・ゲームセット終了演出
+
+---
+
+### 今後の拡張（初版外）
+
+- ファウルボール（2ストライク後は現状維持）
+- フォアボール後の走者詰まり（満塁→押し出し得点）
+- 犠牲フライ・内野ゴロの概念
+- チーム名入力
+- IndexedDB スコア保存
+
+
+
 ## 目的
 
 GitHub Pages で公開できる、2人対戦の野球盤ゲームを作る。
