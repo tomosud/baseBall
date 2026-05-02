@@ -393,6 +393,81 @@ button {
   box-shadow: 0 0 20px rgba(50, 215, 75, 0.75);
 }
 
+/* ===== Playing Prototype A ===== */
+
+.playing-surface {
+  position: relative;
+  min-height: 100vh;
+  overflow: hidden;
+  background: var(--bg-prototype);
+  touch-action: none;
+  user-select: none;
+}
+
+.playing-divider {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 0;
+  border-top: 2px dashed rgba(255, 255, 255, 0.22);
+  pointer-events: none;
+  z-index: 3;
+}
+
+.playing-label {
+  position: absolute;
+  z-index: 4;
+  font-size: 0.72rem;
+  color: rgba(255, 255, 255, 0.38);
+  pointer-events: none;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.playing-label.is-pitcher {
+  top: calc(env(safe-area-inset-top) + 10px);
+  left: calc(env(safe-area-inset-left) + 12px);
+}
+
+.playing-label.is-batter {
+  bottom: calc(50% + 10px);
+  left: calc(env(safe-area-inset-left) + 12px);
+}
+
+.playing-strike-zone {
+  top: auto;
+  bottom: calc(env(safe-area-inset-bottom) + 84px);
+}
+
+.playing-contact-band {
+  bottom: calc(env(safe-area-inset-bottom) + 84px);
+}
+
+.playing-call {
+  top: auto;
+  bottom: calc(env(safe-area-inset-bottom) + 22px);
+  right: calc(env(safe-area-inset-right) + 12px);
+}
+
+.playing-debug {
+  top: calc(env(safe-area-inset-top) + 30px);
+  left: calc(env(safe-area-inset-left) + 12px);
+  right: auto;
+}
+
+.playing-hint {
+  position: absolute;
+  bottom: calc(env(safe-area-inset-bottom) + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 0.72rem;
+  color: rgba(255, 255, 255, 0.38);
+  pointer-events: none;
+  z-index: 4;
+}
+
 .bat-hit-angle {
   position: absolute;
   top: 0;

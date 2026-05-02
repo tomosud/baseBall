@@ -10,10 +10,36 @@
     <main class="screen main-screen" id="mainScreen">
       <div class="main-box">
         <h1>Baseball Prototype</h1>
+        <button type="button" class="main-button" id="openPlayingPrototype">Playing Prototype A</button>
         <button type="button" class="main-button" id="openPitchPrototype">Pitching Prototype</button>
         <button type="button" class="main-button" id="openBattingPrototype">Batting Prototype</button>
       </div>
     </main>
+
+    <section class="screen prototype-screen is-hidden" id="playingScreen" aria-label="playing prototype A">
+      <button type="button" class="back-button" id="playingBackButton">Back</button>
+      <div class="playing-surface" id="playingSurface">
+        <div class="playing-divider" aria-hidden="true"></div>
+        <div class="playing-label is-pitcher" aria-hidden="true">Pitcher</div>
+        <div class="playing-label is-batter" aria-hidden="true">Batter</div>
+        <div class="strike-zone batting-strike-zone playing-strike-zone" id="playingStrikeZone" aria-hidden="true"></div>
+        <div class="batting-contact-band playing-contact-band" aria-hidden="true">
+          <div class="batting-contact-line is-top"></div>
+          <div class="batting-contact-line is-bottom"></div>
+        </div>
+        <div class="pitch-call playing-call" id="playingCall">READY</div>
+        <div class="debug-panel playing-debug" aria-live="polite">
+          <p>pitch km/h: <span id="playingDebugKmh">0</span></p>
+          <p>ball speed: <span id="playingDebugBallSpeed">0</span></p>
+          <p>swing gate: <span id="playingDebugSwingGate">0</span></p>
+        </div>
+        <div class="batting-ball is-hidden" id="playingBall" aria-hidden="true"></div>
+        <div class="bat-hit-angle is-hidden" id="playingBatHitAngle" aria-hidden="true"></div>
+        <div class="bat-reflect-angle is-hidden" id="playingBatReflectAngle" aria-hidden="true"></div>
+        <div class="bat" id="playingBat" aria-hidden="true"></div>
+        <p class="hint playing-hint" id="playingHint">Pitcher: swipe up to pitch  /  Batter: swing up</p>
+      </div>
+    </section>
 
     <section class="screen prototype-screen is-hidden" id="prototypeScreen" aria-label="pitching prototype">
       <button type="button" class="back-button" id="backButton">Back</button>
@@ -26,7 +52,7 @@
           </div>
           <p class="height-debug-value">h: <span id="heightDebugValue">0</span></p>
         </aside>
-        <div class="strike-zone" id="strikeZone" aria-hidden="true"></div>
+        <div class="strike-zone batting-strike-zone" id="strikeZone" aria-hidden="true"></div>
         <div class="pitch-call" id="pitchCall">READY</div>
         <div class="debug-panel" aria-live="polite">
           <p>release raw: <span id="debugReleaseSpeed">0</span></p>
@@ -44,7 +70,7 @@
         </div>
         <div class="pitch-trace" id="pitchTrace" aria-hidden="true"></div>
         <div class="ball is-hidden" id="ball" aria-hidden="true"></div>
-        <p class="hint" id="hintText">Place and swipe to pitch.</p>
+        <p class="hint" id="hintText">指を置いて位置を決めて、下にスワイプして投げる</p>
       </div>
     </section>
 
