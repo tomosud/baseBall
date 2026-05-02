@@ -442,7 +442,7 @@ const physics = {
   battingSwingDuration: 0.033,
   battingHitDragPerSecond: 1.1,
   battingStopSpeed: 18,
-  battingRestSpeed: 40,
+  battingRestSpeed: 60,
   battingEdgeBounceRestitution: 0.62,
   ballRadius: 7,
   batHitPowerScale: 0.55,
@@ -728,7 +728,7 @@ function applyPitchModelBounce(model, zone, options = {}) {
   const escapeDirection = model.ballX <= zoneCenterX ? -1 : 1;
 
   model.height = 0;
-  model.pitchJudged = true;
+  if (!options.noJudge) model.pitchJudged = true;
 
   const impactRatio = Math.min(1, impactVelocity / 260);
   const dynamicForwardLoss = physics.bounceForwardLoss * (1 - impactRatio * 0.22);
@@ -2207,7 +2207,7 @@ function reflectPlayingBallFromBat() {
 
 function applyPlayingBounce() {
   updatePlayingCall("Bound!", "is-ball");
-  applyPitchModelBounce(playingState, getPlayingStrikeZoneRect(), { startRolling: startPlayingRolling });
+  applyPitchModelBounce(playingState, getPlayingStrikeZoneRect(), { startRolling: startPlayingRolling, noJudge: true });
 }
 
 function startPlayingRolling() {
