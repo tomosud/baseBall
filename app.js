@@ -132,6 +132,10 @@ const playingState = {
   animationFrameId: 0,
   lastTick: 0,
   nextPitchReadyAt: 0,
+  // runners
+  runners: [],
+  // fielder throw state
+  isFielderThrow: false,
 };
 
 const elements = {
@@ -190,6 +194,16 @@ const elements = {
   playingBatReflectAngle: document.getElementById("playingBatReflectAngle"),
   playingBat: document.getElementById("playingBat"),
   playingHint: document.getElementById("playingHint"),
+  playingDivider: document.getElementById("playingDivider"),
+  playingLabelPitcher: document.getElementById("playingLabelPitcher"),
+  playingLabelBatter: document.getElementById("playingLabelBatter"),
+  playingRunLabel: document.getElementById("playingRunLabel"),
+  playingBase0: document.getElementById("playingBase0"),
+  playingBase1: document.getElementById("playingBase1"),
+  playingBase2: document.getElementById("playingBase2"),
+  playingRunner0: document.getElementById("playingRunner0"),
+  playingRunner1: document.getElementById("playingRunner1"),
+  playingRunner2: document.getElementById("playingRunner2"),
 };
 
 const physics = {
@@ -1737,6 +1751,209 @@ function updatePlayingDebug() {
   elements.playingDebugSwingGate.textContent = `${playingState.swingGateSpeed.toFixed(0)} / ${physics.battingSwingThreshold}`;
 }
 
+// ---- Playing bases & runners ----
+
+const RUNNER_COLORS = ["color-0", "color-1", "color-2"];
+
+function getPlayingBasePositions(rect) {
+  return [
+    { x: rect.width * 0.94, y: rect.height * 0.36 }, // 1塁（右端）
+    { x: rect.width * 0.50, y: rect.height * 0.05 }, // 2塁（上端中央）
+    { x: rect.width * 0.06, y: rect.height * 0.36 }, // 3塁（左端）
+  ];
+}
+
+function getPlayingHomePlate(rect) {
+  return { x: rect.width * 0.50, y: rect.height * 0.90 };
+}
+
+function updatePlayingBasesDOM() {
+  const rect = elements.playingSurface.getBoundingClientRect();
+  const bases = getPlayingBasePositions(rect);
+  const baseEls = [elements.playingBase0, elements.playingBase1, elements.playingBase2];
+  bases.forEach((base, i) => {
+    baseEls[i].style.transform = `translate(${base.x}px, ${base.y}px) rotate(45deg)`;
+  });
+}
+
+function spawnRunnerOnHit() {
+  const rect = elements.playingSurface.getBoundingClientRect();
+  const bases = getPlayingBasePositions(rect);
+  const home = getPlayingHomePlate(rect);
+
+  // 既存のセーフランナーを1塁進塁させる
+  for (const runner of playingState.runners) {
+    if (runner.state === "safe") {
+      const nextBase = runner.toBaseIndex + 1;
+      if (nextBase >= 3) {
+        runner.state = "scored";
+      } else {
+        runner.fromX = bases[runner.toBaseIndex].x;
+        runner.fromY = bases[runner.toBaseIndex].y;
+        runner.x = runner.fromX;
+        runner.y = runner.fromY;
+        runner.toBaseIndex = nextBase;
+        runner.progress = 0;
+        runner.state = "running";
+      }
+    }
+  }
+
+  // スコアしたランナーを削除
+  playingState.runners = playingState.runners.filter((r) => r.state !== "scored");
+
+  // 新しいランナーを追加（最大3人）
+  if (playingState.runners.length < 3) {
+    const usedColors = new Set(playingState.runners.map((r) => r.colorClass));
+    const colorClass = RUNNER_COLORS.find((c) => !usedColors.has(c)) || RUNNER_COLORS[0];
+    playingState.runners.push({
+      id: Date.now(),
+      x: home.x,
+      y: home.y,
+      fromX: home.x,
+      fromY: home.y,
+      toBaseIndex: 0,
+      progress: 0,
+      state: "running",
+      colorClass,
+      speed: 60,
+    });
+  }
+
+  renderPlayingRunners();
+}
+
+function updatePlayingRunners(dt) {
+  const rect = elements.playingSurface.getBoundingClientRect();
+  const bases = getPlayingBasePositions(rect);
+
+  for (const runner of playingState.runners) {
+    if (runner.state !== "running") continue;
+
+    const target = bases[runner.toBaseIndex];
+    const dx = target.x - runner.fromX;
+    const dy = target.y - runner.fromY;
+    const dist = Math.hypot(dx, dy);
+
+    if (dist < 0.001) {
+      runner.state = "safe";
+      runner.x = target.x;
+      runner.y = target.y;
+      continue;
+    }
+
+    runner.progress += (runner.speed * dt) / dist;
+
+    if (runner.progress >= 1) {
+      runner.progress = 1;
+      runner.x = target.x;
+      runner.y = target.y;
+      runner.state = "safe";
+    } else {
+      runner.x = runner.fromX + dx * runner.progress;
+      runner.y = runner.fromY + dy * runner.progress;
+    }
+  }
+
+  renderPlayingRunners();
+}
+
+function renderPlayingRunners() {
+  const rect = elements.playingSurface.getBoundingClientRect();
+  const bases = getPlayingBasePositions(rect);
+  const runnerEls = [elements.playingRunner0, elements.playingRunner1, elements.playingRunner2];
+
+  // 全て非表示・色クリア
+  runnerEls.forEach((el) => {
+    el.classList.add("is-hidden");
+    el.classList.remove("color-0", "color-1", "color-2");
+  });
+
+  playingState.runners.forEach((runner, i) => {
+    if (i >= runnerEls.length) return;
+    if (runner.state === "out" || runner.state === "scored") return;
+
+    const el = runnerEls[i];
+    el.classList.remove("is-hidden");
+    el.classList.add(runner.colorClass);
+
+    // 方向: 走っているなら目標塁へ、セーフなら次の塁の方向を向く
+    let dx, dy;
+    if (runner.state === "running") {
+      const target = bases[runner.toBaseIndex];
+      dx = target.x - runner.x;
+      dy = target.y - runner.y;
+    } else {
+      const nextIndex = runner.toBaseIndex + 1 < 3 ? runner.toBaseIndex + 1 : 0;
+      const next = bases[nextIndex];
+      dx = next.x - runner.x;
+      dy = next.y - runner.y;
+    }
+
+    const deg = Math.atan2(dy, dx) * (180 / Math.PI) + 90;
+    el.style.transform = `translate(${runner.x}px, ${runner.y}px) rotate(${deg}deg)`;
+  });
+
+  updatePlayingMode();
+}
+
+function checkPlayingBallHitsBases() {
+  if (!playingState.isBallActive || playingState.isHit) return false;
+
+  const rect = elements.playingSurface.getBoundingClientRect();
+  const bases = getPlayingBasePositions(rect);
+  const baseEls = [elements.playingBase0, elements.playingBase1, elements.playingBase2];
+
+  for (let i = 0; i < bases.length; i++) {
+    const dist = Math.hypot(playingState.ballX - bases[i].x, playingState.ballY - bases[i].y);
+    if (dist > 26) continue;
+
+    // この塁に向かって走っているランナーを探す
+    const runnerIndex = playingState.runners.findIndex((r) => r.state === "running" && r.toBaseIndex === i);
+    if (runnerIndex === -1) continue;
+
+    // アウト!
+    const outRunner = playingState.runners[runnerIndex];
+    outRunner.state = "out";
+    renderPlayingRunners();
+
+    // 塁を赤くフラッシュ
+    baseEls[i].classList.add("is-tagged");
+    setTimeout(() => baseEls[i].classList.remove("is-tagged"), 800);
+
+    // アウトランナー削除（少し後）
+    const remainingAfterOut = playingState.runners.filter((r) => r !== outRunner);
+    setTimeout(() => {
+      playingState.runners = remainingAfterOut;
+      renderPlayingRunners();
+    }, 500);
+
+    const stillHasRunners = remainingAfterOut.some((r) => r.state === "running");
+
+    if (stillHasRunners) {
+      // 走者がまだいる → ボールを残してフィールダーが拾い直せる状態に
+      updatePlayingCall("OUT!", "is-ball");
+      // ボールをフィールダー投球モードに切り替え（拾い可能な赤ボール状態）
+      playingState.isHit = false;
+      playingState.isFielderThrow = true;
+      playingState.isResting = true;
+      playingState.isBallActive = false;
+      playingState.isPitched = false;
+      elements.playingBall.classList.add("is-resting");
+    } else {
+      // 走者がいなくなる → ボール消滅・通常モードへ
+      playingState.isBallActive = false;
+      playingState.isPitched = false;
+      playingState.isFielderThrow = false;
+      hidePlayingBall();
+      updatePlayingCall("OUT!", "is-ball");
+    }
+    return true;
+  }
+
+  return false;
+}
+
 function reflectPlayingBallFromBat() {
   reflectBallFromBatModel(playingState, {
     batElement: elements.playingBat,
@@ -1745,6 +1962,7 @@ function reflectPlayingBallFromBat() {
     missMarkerElement: elements.playingContactMissMarker,
     updateCall: updatePlayingCall,
   });
+  spawnRunnerOnHit();
 }
 
 function applyPlayingBounce() {
@@ -1800,6 +2018,7 @@ function resetPlayingState() {
   playingState.swingGateSpeed = 0;
   playingState.lastTick = 0;
   playingState.nextPitchReadyAt = 0;
+  playingState.runners = [];
   elements.playingBat.classList.remove("is-swinging", "is-hit");
   elements.playingBatHitAngle.classList.add("is-hidden");
   elements.playingBatReflectAngle.classList.add("is-hidden");
@@ -1807,6 +2026,7 @@ function resetPlayingState() {
   elements.playingContactMissMarker.classList.add("is-hidden");
   updateContactableBall(elements.playingBall, false);
   hidePlayingBall();
+  renderPlayingRunners();
   const batPos = getDefaultPlayingBatPosition();
   playingState.batBaseX = batPos.x;
   playingState.batBaseY = batPos.y;
@@ -1824,6 +2044,7 @@ function launchPlayingBall(vector) {
   playingState.isHit = false;
   playingState.isResting = false;
   playingState.isPitched = true;
+  playingState.pitchJudged = false;
   elements.playingBat.classList.remove("is-hit");
   elements.playingBatHitAngle.classList.add("is-hidden");
   elements.playingBatReflectAngle.classList.add("is-hidden");
@@ -1871,7 +2092,7 @@ function animatePlaying(timeStamp) {
     const previousY = playingState.ballY;
     const previousHeight = playingState.height;
 
-    if (!playingState.isHit) {
+    if (!playingState.isHit && !playingState.isFielderThrow) {
       if (playingState.motionMode === "flight") {
         playingState.flightElapsed += dt;
         const dragFactor = Math.exp(-physics.dragPerSecond * dt);
@@ -1935,10 +2156,20 @@ function animatePlaying(timeStamp) {
     setPlayingBallPosition(playingState.ballX, playingState.ballY);
     updateContactableBall(
       elements.playingBall,
-      playingState.isBallActive && !playingState.isHit && !playingState.pitchJudged && isPlayingBallInContactBand(),
+      playingState.isBallActive && !playingState.isHit && !playingState.isFielderThrow && !playingState.pitchJudged && isPlayingBallInContactBand(),
     );
 
-    if (playingState.isHit) {
+    // 投球中: 塁ヒット判定（走者アウト）
+    if (!playingState.isHit) { // isFielderThrow も isHit=false なので通過する
+      if (checkPlayingBallHitsBases()) {
+        updatePlayingRunners(0);
+        updatePlayingDebug();
+        playingState.animationFrameId = window.requestAnimationFrame(animatePlaying);
+        return;
+      }
+    }
+
+    if (playingState.isHit || playingState.isFielderThrow) {
       updateContactableBall(elements.playingBall, false);
       applyPlayingEdgeBounce(rect);
       setPlayingBallPosition(playingState.ballX, playingState.ballY);
@@ -1948,6 +2179,7 @@ function animatePlaying(timeStamp) {
     if (
       playingState.isSwinging &&
       !playingState.isHit &&
+      !playingState.isFielderThrow &&
       !playingState.pitchJudged &&
       distanceToPlayingBatSegment(playingState.ballX, playingState.ballY) <= 16
     ) {
@@ -1963,8 +2195,8 @@ function animatePlaying(timeStamp) {
       }
     }
 
-    // ストライクゾーン侵入判定（バウンド済みは常にボール）
-    if (!playingState.pitchJudged && !playingState.isHit) {
+    // ストライクゾーン侵入判定（バウンド済みは常にボール、フィールダー投球は除く）
+    if (!playingState.pitchJudged && !playingState.isHit && !playingState.isFielderThrow) {
       const pzone = getPlayingStrikeZoneRect();
       const inZone =
         playingState.ballX >= pzone.left && playingState.ballX <= pzone.right &&
@@ -1977,15 +2209,15 @@ function animatePlaying(timeStamp) {
     }
 
     // 投球がゾーン横を素通りした場合
-    if (!playingState.pitchJudged && !playingState.isHit) {
+    if (!playingState.pitchJudged && !playingState.isHit && !playingState.isFielderThrow) {
       if (playingState.ballX < -28 || playingState.ballX > rect.width + 28) {
         playingState.pitchJudged = true;
         updatePlayingCall("BALL", "is-ball");
       }
     }
 
-    // 休止状態（拾える）
-    if (playingState.isHit && !playingState.isResting && playingState.currentSpeed <= physics.battingRestSpeed) {
+    // 休止状態（赤くなる）
+    if ((playingState.isHit || playingState.isFielderThrow) && !playingState.isResting && playingState.currentSpeed <= physics.battingRestSpeed) {
       playingState.isResting = true;
       elements.playingBall.classList.add("is-resting");
     }
@@ -1995,13 +2227,21 @@ function animatePlaying(timeStamp) {
       playingState.ballY < -80 ||
       playingState.ballX < -80 ||
       playingState.ballX > rect.width + 80;
-    const isRollStopped = playingState.motionMode === "rolling" && !playingState.isHit && playingState.currentSpeed <= physics.rollStopSpeed;
-    const isStopped = playingState.isHit && playingState.currentSpeed <= physics.battingStopSpeed;
+    const isRollStopped = playingState.motionMode === "rolling" && !playingState.isHit && !playingState.isFielderThrow && playingState.currentSpeed <= physics.rollStopSpeed;
+    const isFlightStuck =
+      !playingState.isHit &&
+      !playingState.isFielderThrow &&
+      playingState.motionMode === "flight" &&
+      playingState.flightElapsed > 0.35 &&
+      playingState.height <= 0 &&
+      playingState.currentSpeed <= physics.rollStopSpeed;
+    const isStopped = (playingState.isHit || playingState.isFielderThrow) && playingState.currentSpeed <= physics.battingStopSpeed;
 
     if (isStopped) {
+      // 完全停止: ピッチャーが拾えるように isPitched を false に
       playingState.isBallActive = false;
-      playingState.nextPitchReadyAt = performance.now() + 800;
-    } else if (isRollStopped || isOutside) {
+      playingState.isPitched = false;
+    } else if (isRollStopped || isFlightStuck || isOutside) {
       if (!playingState.pitchJudged) {
         playingState.pitchJudged = true;
         updatePlayingCall("BALL", "is-ball");
@@ -2010,6 +2250,7 @@ function animatePlaying(timeStamp) {
     }
   }
 
+  updatePlayingRunners(dt);
   updatePlayingDebug();
   playingState.animationFrameId = window.requestAnimationFrame(animatePlaying);
 }
@@ -2024,6 +2265,7 @@ function showPlayingScreen() {
   elements.battingScreen.classList.add("is-hidden");
   elements.playingScreen.classList.remove("is-hidden");
   resetPlayingState();
+  updatePlayingBasesDOM();
   playingState.isRunning = true;
   playingState.animationFrameId = window.requestAnimationFrame(animatePlaying);
 }
@@ -2035,7 +2277,30 @@ function getPlayingSurfacePoint(event) {
   return { x: event.clientX - rect.left, y: event.clientY - rect.top };
 }
 
+function hasActiveRunners() {
+  return playingState.runners.some((r) => r.state === "running");
+}
+
+function updatePlayingMode() {
+  const running = hasActiveRunners();
+  if (running) {
+    elements.playingDivider.classList.add("is-hidden");
+    elements.playingLabelPitcher.classList.add("is-hidden");
+    elements.playingLabelBatter.classList.add("is-hidden");
+    elements.playingRunLabel.classList.remove("is-hidden");
+    elements.playingHint.textContent = "Fielder: pick up and throw!";
+  } else {
+    elements.playingDivider.classList.remove("is-hidden");
+    elements.playingLabelPitcher.classList.remove("is-hidden");
+    elements.playingLabelBatter.classList.remove("is-hidden");
+    elements.playingRunLabel.classList.add("is-hidden");
+    elements.playingHint.textContent = "Pitcher: swipe up to pitch  /  Batter: swing up";
+  }
+}
+
 function isTopHalf(y) {
+  // 走者が走っている場合は全画面がフィールダーエリア
+  if (hasActiveRunners()) return true;
   const rect = elements.playingSurface.getBoundingClientRect();
   return y < rect.height * 0.5;
 }
@@ -2045,11 +2310,27 @@ function beginPlayingPointer(event) {
   if (isTopHalf(point.y)) {
     // ピッチャー側
     if (playingState.pitcherPointerId !== null) return;
-    if (playingState.isPitched) return; // 投球中は再投不可
+
+    // ピックアップ判定: 飛行/休止中のボール or 停止したヒット/フィールダー投球ボール
+    const ballOnField =
+      (playingState.isPitched && (playingState.isResting || !playingState.isBallActive)) ||
+      (!playingState.isPitched && !playingState.isBallActive && (playingState.isHit || playingState.isFielderThrow));
+    playingState.isFielderThrow = ballOnField;
+    if (ballOnField) {
+      playingState.isBallActive = false;
+      playingState.isHit = false;
+      playingState.isResting = false;
+      playingState.isPitched = false;
+      elements.playingBall.classList.remove("is-resting");
+      hidePlayingBall();
+    }
+
+    if (playingState.isPitched) return; // まだ飛行中
+
+    // 通常のピッチ開始
     playingState.pitcherPointerId = event.pointerId;
     elements.playingSurface.setPointerCapture(event.pointerId);
     playingState.pitcherTrail = [];
-    // ピッチングプロトと同様に指の位置にボールを表示
     setPlayingBallPosition(point.x, point.y);
     showPlayingBall();
     pushPlayingPitcherTrail(point.x, point.y, event.timeStamp);

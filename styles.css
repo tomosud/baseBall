@@ -499,6 +499,26 @@ button {
   right: auto;
 }
 
+.playing-run-label {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: rgba(255, 80, 50, 0.82);
+  pointer-events: none;
+  z-index: 4;
+  white-space: nowrap;
+  animation: run-label-pulse 0.9s ease-in-out infinite alternate;
+}
+
+@keyframes run-label-pulse {
+  from { opacity: 0.6; transform: translate(-50%, -50%) scale(0.95); }
+  to   { opacity: 1.0; transform: translate(-50%, -50%) scale(1.05); }
+}
+
 .playing-hint {
   position: absolute;
   bottom: calc(env(safe-area-inset-bottom) + 10px);
@@ -567,4 +587,58 @@ button {
     top: calc(env(safe-area-inset-top) + 94px);
     width: 76px;
   }
+}
+
+/* ===== Playing bases ===== */
+
+.playing-base {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  width: 18px;
+  height: 18px;
+  margin-left: -9px;
+  margin-top: -9px;
+  background: rgba(255, 255, 255, 0.72);
+  transform-origin: center center;
+  pointer-events: none;
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.3);
+}
+
+.playing-base.is-tagged {
+  background: rgba(255, 59, 48, 0.9);
+  box-shadow: 0 0 14px rgba(255, 59, 48, 0.7);
+  transition: background 0.15s, box-shadow 0.15s;
+}
+
+/* ===== Playing runners ===== */
+
+.playing-runner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 3;
+  width: 22px;
+  height: 22px;
+  margin-left: -11px;
+  margin-top: -11px;
+  clip-path: polygon(50% 0%, 100% 100%, 50% 68%, 0% 100%);
+  transform-origin: center center;
+  pointer-events: none;
+}
+
+.playing-runner.color-0 {
+  background: #44d7b6;
+  filter: drop-shadow(0 0 4px rgba(68, 215, 182, 0.9));
+}
+
+.playing-runner.color-1 {
+  background: #ffd60a;
+  filter: drop-shadow(0 0 4px rgba(255, 214, 10, 0.9));
+}
+
+.playing-runner.color-2 {
+  background: #ff375f;
+  filter: drop-shadow(0 0 4px rgba(255, 55, 95, 0.9));
 }
