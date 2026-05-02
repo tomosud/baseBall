@@ -25,6 +25,8 @@ body {
 body {
   min-height: 100vh;
   overscroll-behavior: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 button {
@@ -167,13 +169,7 @@ button {
 }
 
 .batting-contact-band {
-  position: absolute;
-  right: 0;
-  bottom: calc(env(safe-area-inset-bottom) + 84px);
-  left: 0;
-  height: 36px;
-  z-index: 0;
-  pointer-events: none;
+  display: none;
 }
 
 .batting-contact-line {
@@ -489,6 +485,10 @@ button {
   left: calc(env(safe-area-inset-left) + 12px);
 }
 
+.playing-home-base {
+  background: rgba(255, 255, 255, 0.7);
+}
+
 .playing-strike-zone {
   top: auto;
   bottom: calc(env(safe-area-inset-bottom) + 84px);
@@ -543,6 +543,7 @@ button {
 }
 
 .bat-hit-angle {
+  display: none;
   position: absolute;
   top: 0;
   left: 0;
@@ -556,6 +557,7 @@ button {
 }
 
 .bat-reflect-angle {
+  display: none;
   position: absolute;
   top: 0;
   left: 0;

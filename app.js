@@ -198,6 +198,7 @@ const elements = {
   playingLabelBatter: document.getElementById("playingLabelBatter"),
   playingRunLabel: document.getElementById("playingRunLabel"),
   playingTopWall: document.getElementById("playingTopWall"),
+  playingHomeBase: document.getElementById("playingHomeBase"),
   playingBase0: document.getElementById("playingBase0"),
   playingBase1: document.getElementById("playingBase1"),
   playingBase2: document.getElementById("playingBase2"),
@@ -1326,7 +1327,7 @@ function animateBatting(timeStamp) {
     setBattingBallPosition(battingState.ballX, battingState.ballY);
     updateContactableBall(
       elements.battingBall,
-      battingState.isBallActive && !battingState.isHit && !battingState.pitchJudged && isBallInBattingContactBand(),
+      battingState.isBallActive && !battingState.isHit && !battingState.pitchJudged,
     );
 
     if (battingState.isHit) {
@@ -1341,16 +1342,8 @@ function animateBatting(timeStamp) {
       !battingState.pitchJudged &&
       distanceToBatSegment(battingState.ballX, battingState.ballY) <= 16
     ) {
-      if (isBallInBattingContactBand()) {
-        updateContactableBall(elements.battingBall, false);
-        reflectBallFromBat();
-      } else {
-        const contactPoint = getBatModelClosestPoint(battingState, battingState.ballX, battingState.ballY);
-        showContactMissMarker(elements.battingContactMissMarker, contactPoint.x, contactPoint.y);
-        updateContactableBall(elements.battingBall, false);
-        battingState.pitchJudged = true;
-        updateBattingCall("MISS", "is-ball");
-      }
+      updateContactableBall(elements.battingBall, false);
+      reflectBallFromBat();
     }
 
     if (!battingState.pitchJudged && !battingState.isHit) {
@@ -1763,7 +1756,28 @@ function getPlayingBasePositions(rect) {
 }
 
 function getPlayingHomePlate(rect) {
-  return { x: rect.width * 0.50, y: rect.height * 0.90 };
+  // ストライクゾーンのCSS位置に合わせてサーフェス寸法から直接計算
+  // .playing-strike-zone: bottom: 84px, height: 36px, 水平中央
+  const safeBottom = 0; // env(safe-area-inset-bottom) は JS からは取得しにくいためゼロ近似
+  const zoneBottom = rect.height - 84 - safeBottom;
+  const zoneHeight = 36;
+  const zoneTop = zoneBottom - zoneHeight;
+  return { x: rect.width * 0.5, y: zoneTop + zoneHeight / 2 };
+}
+
+function updatePlayingHomBaseDOM() {
+  const rect = elements.playingSurface.getBoundingClientRect();
+  const home = getPlayingHomePlate(rect);
+  elements.playingHomeBase.style.transform = `translate(${home.x}px, ${home.y}px) rotate(45deg)`;
+}
+
+function showPlayingScore() {
+  updatePlayingCall("得点！", "is-strike");
+  setTimeout(() => {
+    if (elements.playingCall.textContent === "得点！") {
+      updatePlayingCall("READY");
+    }
+  }, 1500);
 }
 
 function updatePlayingBasesDOM() {
@@ -1780,17 +1794,24 @@ function spawnRunnerOnHit() {
   const bases = getPlayingBasePositions(rect);
   const home = getPlayingHomePlate(rect);
 
-  // 既存のセーフランナーを1塁進塁させる
+  // 既存のセーフランナーを1塁進塁させる（3塁セーフはホームへ）
   for (const runner of playingState.runners) {
     if (runner.state === "safe") {
       const nextBase = runner.toBaseIndex + 1;
-      if (nextBase >= 3) {
+      const fromPos = runner.toBaseIndex < bases.length ? bases[runner.toBaseIndex] : home;
+      runner.fromX = fromPos.x;
+      runner.fromY = fromPos.y;
+      runner.x = runner.fromX;
+      runner.y = runner.fromY;
+      if (nextBase > bases.length) {
+        // すでにホーム走中などは無視
         runner.state = "scored";
+      } else if (nextBase === bases.length) {
+        // 3塁 → ホーム
+        runner.toBaseIndex = bases.length; // ホーム用
+        runner.progress = 0;
+        runner.state = "running";
       } else {
-        runner.fromX = bases[runner.toBaseIndex].x;
-        runner.fromY = bases[runner.toBaseIndex].y;
-        runner.x = runner.fromX;
-        runner.y = runner.fromY;
         runner.toBaseIndex = nextBase;
         runner.progress = 0;
         runner.state = "running";
@@ -1825,17 +1846,25 @@ function spawnRunnerOnHit() {
 function updatePlayingRunners(dt) {
   const rect = elements.playingSurface.getBoundingClientRect();
   const bases = getPlayingBasePositions(rect);
+  const home = getPlayingHomePlate(rect);
 
   for (const runner of playingState.runners) {
+    if (runner.state === "out" || runner.state === "scored") continue;
+
     if (runner.state !== "running") continue;
 
-    const target = bases[runner.toBaseIndex];
+    const target = runner.toBaseIndex < bases.length ? bases[runner.toBaseIndex] : home;
     const dx = target.x - runner.fromX;
     const dy = target.y - runner.fromY;
     const dist = Math.hypot(dx, dy);
 
     if (dist < 0.001) {
-      runner.state = "safe";
+      if (runner.toBaseIndex >= bases.length) {
+        runner.state = "scored";
+        showPlayingScore();
+      } else {
+        runner.state = "safe";
+      }
       runner.x = target.x;
       runner.y = target.y;
       continue;
@@ -1847,12 +1876,20 @@ function updatePlayingRunners(dt) {
       runner.progress = 1;
       runner.x = target.x;
       runner.y = target.y;
-      runner.state = "safe";
+      if (runner.toBaseIndex >= bases.length) {
+        runner.state = "scored";
+        showPlayingScore();
+      } else {
+        runner.state = "safe";
+      }
     } else {
       runner.x = runner.fromX + dx * runner.progress;
       runner.y = runner.fromY + dy * runner.progress;
     }
   }
+
+  // scored を削除
+  playingState.runners = playingState.runners.filter((r) => r.state !== "scored");
 
   renderPlayingRunners();
 }
@@ -1876,15 +1913,17 @@ function renderPlayingRunners() {
     el.classList.remove("is-hidden");
     el.classList.add(runner.colorClass);
 
-    // 方向: 走っているなら目標塁へ、セーフなら次の塁の方向を向く
+    // 方向: 走っているなら目標塁/ホームへ、セーフなら次の方向を向く
     let dx, dy;
+    const rect2 = rect; // same rect
+    const home = getPlayingHomePlate(rect2);
     if (runner.state === "running") {
-      const target = bases[runner.toBaseIndex];
+      const target = runner.toBaseIndex < bases.length ? bases[runner.toBaseIndex] : home;
       dx = target.x - runner.x;
       dy = target.y - runner.y;
     } else {
-      const nextIndex = runner.toBaseIndex + 1 < 3 ? runner.toBaseIndex + 1 : 0;
-      const next = bases[nextIndex];
+      const nextIndex = runner.toBaseIndex + 1;
+      const next = nextIndex < bases.length ? bases[nextIndex] : home;
       dx = next.x - runner.x;
       dy = next.y - runner.y;
     }
@@ -1901,14 +1940,18 @@ function checkPlayingBallHitsBases() {
 
   const rect = elements.playingSurface.getBoundingClientRect();
   const bases = getPlayingBasePositions(rect);
-  const baseEls = [elements.playingBase0, elements.playingBase1, elements.playingBase2];
+  const home = getPlayingHomePlate(rect);
+  const allTargets = [
+    ...bases.map((b, i) => ({ pos: b, el: [elements.playingBase0, elements.playingBase1, elements.playingBase2][i], idx: i })),
+    { pos: home, el: elements.playingHomeBase, idx: bases.length },
+  ];
 
-  for (let i = 0; i < bases.length; i++) {
-    const dist = Math.hypot(playingState.ballX - bases[i].x, playingState.ballY - bases[i].y);
+  for (const { pos, el, idx } of allTargets) {
+    const dist = Math.hypot(playingState.ballX - pos.x, playingState.ballY - pos.y);
     if (dist > 26) continue;
 
     // この塁に向かって走っているランナーを探す
-    const runnerIndex = playingState.runners.findIndex((r) => r.state === "running" && r.toBaseIndex === i);
+    const runnerIndex = playingState.runners.findIndex((r) => r.state === "running" && r.toBaseIndex === idx);
     if (runnerIndex === -1) continue;
 
     // アウト!
@@ -1917,8 +1960,8 @@ function checkPlayingBallHitsBases() {
     renderPlayingRunners();
 
     // 塁を赤くフラッシュ
-    baseEls[i].classList.add("is-tagged");
-    setTimeout(() => baseEls[i].classList.remove("is-tagged"), 800);
+    el.classList.add("is-tagged");
+    setTimeout(() => el.classList.remove("is-tagged"), 800);
 
     // アウトランナー削除（少し後）
     const remainingAfterOut = playingState.runners.filter((r) => r !== outRunner);
@@ -1932,7 +1975,6 @@ function checkPlayingBallHitsBases() {
     if (stillHasRunners) {
       // 走者がまだいる → ボールを残してフィールダーが拾い直せる状態に
       updatePlayingCall("OUT!", "is-ball");
-      // ボールをフィールダー投球モードに切り替え（拾い可能な赤ボール状態）
       playingState.isHit = false;
       playingState.isFielderThrow = true;
       playingState.isResting = true;
@@ -2183,7 +2225,7 @@ function animatePlaying(timeStamp) {
     setPlayingBallPosition(playingState.ballX, playingState.ballY);
     updateContactableBall(
       elements.playingBall,
-      playingState.isBallActive && !playingState.isHit && !playingState.isFielderThrow && !playingState.pitchJudged && isPlayingBallInContactBand(),
+      playingState.isBallActive && !playingState.isHit && !playingState.isFielderThrow && !playingState.pitchJudged,
     );
 
     // 投球中: 塁ヒット判定（走者アウト）
@@ -2210,16 +2252,8 @@ function animatePlaying(timeStamp) {
       !playingState.pitchJudged &&
       distanceToPlayingBatSegment(playingState.ballX, playingState.ballY) <= 16
     ) {
-      if (isPlayingBallInContactBand()) {
-        updateContactableBall(elements.playingBall, false);
-        reflectPlayingBallFromBat();
-      } else {
-        const contactPoint = getBatModelClosestPoint(playingState, playingState.ballX, playingState.ballY);
-        showContactMissMarker(elements.playingContactMissMarker, contactPoint.x, contactPoint.y);
-        updateContactableBall(elements.playingBall, false);
-        playingState.pitchJudged = true;
-        updatePlayingCall("MISS", "is-ball");
-      }
+      updateContactableBall(elements.playingBall, false);
+      reflectPlayingBallFromBat();
     }
 
     // ストライクゾーン侵入判定（バウンド済みは常にボール、フィールダー投球は除く）
@@ -2310,18 +2344,30 @@ function hasActiveRunners() {
 
 function updatePlayingMode() {
   const running = hasActiveRunners();
+  const wasRunnerMode = !elements.playingRunLabel.classList.contains("is-hidden");
   if (running) {
-    elements.playingDivider.classList.add("is-hidden");
-    elements.playingLabelPitcher.classList.add("is-hidden");
-    elements.playingLabelBatter.classList.add("is-hidden");
-    elements.playingRunLabel.classList.remove("is-hidden");
-    elements.playingHint.textContent = "Fielder: pick up and throw!";
+    if (!wasRunnerMode) {
+      // 走者モード突入時のみUI切替
+      elements.playingDivider.classList.add("is-hidden");
+      elements.playingLabelPitcher.classList.add("is-hidden");
+      elements.playingLabelBatter.classList.add("is-hidden");
+      elements.playingRunLabel.classList.remove("is-hidden");
+      elements.playingHint.textContent = "Fielder: pick up and throw!";
+      elements.playingStrikeZone.classList.add("is-hidden");
+      elements.playingHomeBase.classList.remove("is-hidden");
+    }
+    updatePlayingHomBaseDOM();
   } else {
-    elements.playingDivider.classList.remove("is-hidden");
-    elements.playingLabelPitcher.classList.remove("is-hidden");
-    elements.playingLabelBatter.classList.remove("is-hidden");
-    elements.playingRunLabel.classList.add("is-hidden");
-    elements.playingHint.textContent = "Pitcher: swipe up to pitch  /  Batter: swing up";
+    if (wasRunnerMode) {
+      // 通常モード復帰時のみUI切替
+      elements.playingDivider.classList.remove("is-hidden");
+      elements.playingLabelPitcher.classList.remove("is-hidden");
+      elements.playingLabelBatter.classList.remove("is-hidden");
+      elements.playingRunLabel.classList.add("is-hidden");
+      elements.playingHint.textContent = "Pitcher: swipe up to pitch  /  Batter: swing up";
+      elements.playingStrikeZone.classList.remove("is-hidden");
+      elements.playingHomeBase.classList.add("is-hidden");
+    }
   }
 }
 
