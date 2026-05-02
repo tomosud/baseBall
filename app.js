@@ -295,6 +295,7 @@ function gameProcessStrike() {
   if (gameState.phase !== "playing") return;
   gameState.strikes++;
   updateStatusBar();
+  saveGameToDB();
   if (gameState.strikes >= 3) {
     setTimeout(() => gameProcessOut("三振!"), 600);
   }
@@ -350,6 +351,7 @@ function gameProcessScore() {
   const inningIdx = gameState.inning - 1;
   if (inningIdx < 9) gameState.inningScores[inningIdx][teamIdx]++;
   updateStatusBar();
+  saveGameToDB();
   updatePlayingCall("得点！", "is-strike");
   setTimeout(() => {
     if (elements.playingCall.textContent === "得点！") updatePlayingCall("READY");
@@ -2073,6 +2075,7 @@ function spawnRunnerOnHit() {
   }
 
   renderPlayingRunners();
+  saveGameToDB();
 }
 
 function updatePlayingRunners(dt) {
@@ -2785,6 +2788,9 @@ function openDB() {
 
 function saveGameToDB() {
   if (gameState.phase !== "playing") return;
+  const savedRunners = playingState.runners
+    .filter((r) => r.state !== "out" && r.state !== "scored")
+    .map((r) => ({ toBaseIndex: r.toBaseIndex, colorClass: r.colorClass }));
   const data = {
     inning: gameState.inning,
     isTop: gameState.isTop,
@@ -2793,6 +2799,7 @@ function saveGameToDB() {
     strikes: gameState.strikes,
     score: [...gameState.score],
     inningScores: gameState.inningScores.map((r) => [...r]),
+    runners: savedRunners,
     savedAt: Date.now(),
   };
   openDB().then((db) => {
@@ -2830,28 +2837,47 @@ function applyLoadedGame(data) {
   gameState.phase = "playing";
 }
 
-// 起動: セーブデータ確認 → ゲーム開始
+function restoreRunnersFromSave(savedRunners) {
+  if (!savedRunners || savedRunners.length === 0) return;
+  const rect = elements.playingSurface.getBoundingClientRect();
+  const bases = getPlayingBasePositions(rect);
+  const home = getPlayingHomePlate(rect);
+  playingState.runners = savedRunners.map((r) => {
+    const pos = r.toBaseIndex < bases.length ? bases[r.toBaseIndex] : home;
+    return {
+      id: Date.now() + Math.random(),
+      x: pos.x,
+      y: pos.y,
+      fromX: pos.x,
+      fromY: pos.y,
+      toBaseIndex: r.toBaseIndex,
+      progress: 1,
+      state: "safe",
+      colorClass: r.colorClass,
+      speed: 98,
+    };
+  });
+  renderPlayingRunners();
+}
+
+// 起動: セーブデータがあれば自動再開、なければ新規ゲーム
 loadGameFromDB().then((saved) => {
   if (saved) {
-    const d = new Date(saved.savedAt);
-    const label = `${saved.inning}回${saved.isTop ? "表" : "裏"} 青${saved.score[0]}-${saved.score[1]}赤`;
-    if (confirm(`前回の続き（${label}）から再開しますか？\nいいえで新しいゲームを開始します。`)) {
-      applyLoadedGame(saved);
-      // 画面初期化（resetGameStateを呼ばずにgameStateを維持）
-      resetPlayingState();
-      updatePlayingBasesDOM();
-      updateStatusBar();
-      elements.mainScreen.classList.add("is-hidden");
-      elements.playingScreen.classList.remove("is-hidden");
-      showOverlay("PLAY BALL!", "", false);
-      playingState.isRunning = false;
-      setTimeout(() => {
-        hideOverlay();
-        playingState.isRunning = true;
-        playingState.animationFrameId = window.requestAnimationFrame(animatePlaying);
-      }, 1200);
-      return;
-    }
+    applyLoadedGame(saved);
+    resetPlayingState();
+    updateStatusBar();
+    elements.mainScreen.classList.add("is-hidden");
+    elements.playingScreen.classList.remove("is-hidden");
+    updatePlayingBasesDOM();
+    restoreRunnersFromSave(saved.runners || []);
+    showOverlay("PLAY BALL!", "", false);
+    playingState.isRunning = false;
+    setTimeout(() => {
+      hideOverlay();
+      playingState.isRunning = true;
+      playingState.animationFrameId = window.requestAnimationFrame(animatePlaying);
+    }, 1200);
+  } else {
+    showPlayingScreen();
   }
-  showPlayingScreen();
 });
