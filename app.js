@@ -227,6 +227,7 @@ const elements = {
   overlayButton: document.getElementById("overlayButton"),
   playingAreaTop: document.getElementById("playingAreaTop"),
   playingAreaBottom: document.getElementById("playingAreaBottom"),
+  playingResetBtn: document.getElementById("playingResetBtn"),
 };
 
 // ---- Game State ----
@@ -324,6 +325,7 @@ function gameProcessBall() {
         renderPlayingRunners();
       }
       resetAtBat();
+      saveGameToDB();
       finishPlayingPitch("READY");
     }, 400);
   }
@@ -335,6 +337,7 @@ function gameProcessOut(reason) {
   updateStatusBar();
   updatePlayingCall(reason || "OUT!", "is-ball");
   resetAtBat();
+  saveGameToDB();
   if (gameState.outs >= 3) {
     setTimeout(gameDoChange, 1000);
   }
@@ -382,6 +385,7 @@ function gameDoChange() {
     gameState.strikes = 0;
     gameState.phase = "playing";
     updateStatusBar();
+    saveGameToDB();
     playingState.isRunning = true;
     playingState.animationFrameId = window.requestAnimationFrame(animatePlaying);
     updatePlayingCall("READY");
@@ -390,6 +394,7 @@ function gameDoChange() {
 
 function gameDoGameSet() {
   gameState.phase = "gameset";
+  clearSaveData();
   const [blue, red] = gameState.score;
   let winner;
   if (blue > red) winner = "青軍の勝ち！";
@@ -1860,6 +1865,35 @@ elements.backButton.addEventListener("click", showMainScreen);
 elements.battingBackButton.addEventListener("click", showMainScreen);
 elements.overlayButton.addEventListener("click", () => { showPlayingScreen(); });
 
+// リセットボタン長押し（3秒）
+(function () {
+  let holdTimer = null;
+  const btn = elements.playingResetBtn;
+
+  function startHold(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    btn.classList.add("is-holding");
+    holdTimer = setTimeout(() => {
+      btn.classList.remove("is-holding");
+      if (confirm("ゲームをリセットしますか？")) {
+        showPlayingScreen();
+      }
+    }, 3000);
+  }
+
+  function cancelHold() {
+    clearTimeout(holdTimer);
+    holdTimer = null;
+    btn.classList.remove("is-holding");
+  }
+
+  btn.addEventListener("pointerdown", startHold);
+  btn.addEventListener("pointerup", cancelHold);
+  btn.addEventListener("pointercancel", cancelHold);
+  btn.addEventListener("pointerleave", cancelHold);
+})();
+
 elements.pitchSurface.addEventListener("pointerdown", beginPointerControl);
 elements.pitchSurface.addEventListener("pointermove", movePointerControl);
 elements.pitchSurface.addEventListener("pointerup", endPointerControl);
@@ -2539,6 +2573,7 @@ function showPlayingScreen() {
   elements.prototypeScreen.classList.add("is-hidden");
   elements.battingScreen.classList.add("is-hidden");
   elements.playingScreen.classList.remove("is-hidden");
+  clearSaveData();
   resetGameState();
   resetPlayingState();
   updatePlayingBasesDOM();
@@ -2732,4 +2767,91 @@ elements.playingSurface.addEventListener("pointermove", movePlayingPointer);
 elements.playingSurface.addEventListener("pointerup", endPlayingPointer);
 elements.playingSurface.addEventListener("pointercancel", endPlayingPointer);
 
-showMainScreen();
+// ===== IndexedDB セーブ/ロード =====
+const DB_NAME = "baseballGame";
+const DB_STORE = "saveData";
+const DB_KEY = "gameState";
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = (e) => {
+      e.target.result.createObjectStore(DB_STORE);
+    };
+    req.onsuccess = (e) => resolve(e.target.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function saveGameToDB() {
+  if (gameState.phase !== "playing") return;
+  const data = {
+    inning: gameState.inning,
+    isTop: gameState.isTop,
+    outs: gameState.outs,
+    balls: gameState.balls,
+    strikes: gameState.strikes,
+    score: [...gameState.score],
+    inningScores: gameState.inningScores.map((r) => [...r]),
+    savedAt: Date.now(),
+  };
+  openDB().then((db) => {
+    const tx = db.transaction(DB_STORE, "readwrite");
+    tx.objectStore(DB_STORE).put(data, DB_KEY);
+  }).catch(() => {});
+}
+
+function clearSaveData() {
+  openDB().then((db) => {
+    const tx = db.transaction(DB_STORE, "readwrite");
+    tx.objectStore(DB_STORE).delete(DB_KEY);
+  }).catch(() => {});
+}
+
+function loadGameFromDB() {
+  return openDB().then((db) => {
+    return new Promise((resolve) => {
+      const tx = db.transaction(DB_STORE, "readonly");
+      const req = tx.objectStore(DB_STORE).get(DB_KEY);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => resolve(null);
+    });
+  }).catch(() => null);
+}
+
+function applyLoadedGame(data) {
+  gameState.inning = data.inning;
+  gameState.isTop = data.isTop;
+  gameState.outs = data.outs;
+  gameState.balls = data.balls;
+  gameState.strikes = data.strikes;
+  gameState.score = [...data.score];
+  gameState.inningScores = data.inningScores.map((r) => [...r]);
+  gameState.phase = "playing";
+}
+
+// 起動: セーブデータ確認 → ゲーム開始
+loadGameFromDB().then((saved) => {
+  if (saved) {
+    const d = new Date(saved.savedAt);
+    const label = `${saved.inning}回${saved.isTop ? "表" : "裏"} 青${saved.score[0]}-${saved.score[1]}赤`;
+    if (confirm(`前回の続き（${label}）から再開しますか？\nいいえで新しいゲームを開始します。`)) {
+      applyLoadedGame(saved);
+      // 画面初期化（resetGameStateを呼ばずにgameStateを維持）
+      resetPlayingState();
+      updatePlayingBasesDOM();
+      updateStatusBar();
+      elements.mainScreen.classList.add("is-hidden");
+      elements.playingScreen.classList.remove("is-hidden");
+      showOverlay("PLAY BALL!", "", false);
+      playingState.isRunning = false;
+      setTimeout(() => {
+        hideOverlay();
+        playingState.isRunning = true;
+        playingState.animationFrameId = window.requestAnimationFrame(animatePlaying);
+      }, 1200);
+      return;
+    }
+  }
+  showPlayingScreen();
+});
