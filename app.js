@@ -575,16 +575,31 @@ function createSoftReleaseVector(vector) {
 
 // Playing prototype: forward direction is +Y (downward toward batter)
 function createPlayingSoftReleaseVector(vector) {
-  const rawX = vector ? vector.velocityX : 0;
-  const side = rawX * 0.1 * physics.speedScale;
   const forwardSpeed = physics.softReleaseForwardSpeed * physics.speedScale;
 
+  if (vector) {
+    const rawSpeed = Math.hypot(vector.velocityX, vector.velocityY);
+    if (rawSpeed > 10) {
+      const nx = vector.velocityX / rawSpeed;
+      const ny = vector.velocityY / rawSpeed;
+      return {
+        deltaX: vector.deltaX,
+        deltaY: vector.deltaY,
+        velocityX: nx * forwardSpeed,
+        velocityY: ny * forwardSpeed,
+        speed: forwardSpeed,
+        curve: 0,
+      };
+    }
+  }
+
+  // デフォルト: 下方向（打者方向）
   return {
-    deltaX: vector ? vector.deltaX : 0,
-    deltaY: vector ? vector.deltaY : 6,
-    velocityX: Math.max(-physics.softReleaseSpeed, Math.min(side, physics.softReleaseSpeed)),
+    deltaX: 0,
+    deltaY: 6,
+    velocityX: 0,
     velocityY: forwardSpeed,
-    speed: Math.hypot(Math.max(-physics.softReleaseSpeed, Math.min(side, physics.softReleaseSpeed)), forwardSpeed),
+    speed: forwardSpeed,
     curve: 0,
   };
 }
@@ -1692,16 +1707,22 @@ function applyPlayingBounce() {
 
   const impactRatio = Math.min(1, impactVelocity / 260);
   const dynamicForwardLoss = physics.bounceForwardLoss * (1 - impactRatio * 0.22);
-  const deflectionSpeed = Math.max(Math.abs(playingState.velocityX) * 0.7, Math.min(120, preBounceSpeed * 0.45));
-  playingState.velocityX = escapeDirection * deflectionSpeed;
-  // +Y = toward batter (forward), keep positive after bounce
-  playingState.velocityY = Math.max(Math.abs(playingState.velocityY) * dynamicForwardLoss, physics.minForwardSpeed);
 
-  const newSpeed = Math.hypot(playingState.velocityX, playingState.velocityY);
-  if (newSpeed > preBounceSpeed * 0.9 && newSpeed > 0.0001) {
-    const scale = (preBounceSpeed * 0.9) / newSpeed;
-    playingState.velocityX *= scale;
-    playingState.velocityY *= scale;
+  // 進行方向を保ちつつ速度ロスを適用
+  const newSpeed = Math.max(preBounceSpeed * dynamicForwardLoss, physics.minForwardSpeed);
+  const dirX = preBounceSpeed > 0.001 ? playingState.velocityX / preBounceSpeed : 0;
+  const dirY = preBounceSpeed > 0.001 ? playingState.velocityY / preBounceSpeed : 0;
+  playingState.velocityX = dirX * newSpeed;
+  playingState.velocityY = dirY * newSpeed;
+  // 垂直方向（進行方向の90°）に小さく偏向
+  const deflectionMag = Math.min(50, preBounceSpeed * 0.18);
+  playingState.velocityX += -dirY * deflectionMag * escapeDirection;
+  playingState.velocityY += dirX * deflectionMag * escapeDirection;
+  const afterBounceSpeed = Math.hypot(playingState.velocityX, playingState.velocityY);
+  if (afterBounceSpeed > preBounceSpeed * 0.9 && afterBounceSpeed > 0.0001) {
+    const clampScale = (preBounceSpeed * 0.9) / afterBounceSpeed;
+    playingState.velocityX *= clampScale;
+    playingState.velocityY *= clampScale;
   }
   playingState.currentSpeed = Math.hypot(playingState.velocityX, playingState.velocityY);
 
@@ -1723,34 +1744,29 @@ function startPlayingRolling() {
   playingState.height = 0;
   playingState.heightVelocity = 0;
 
-  const currentDirection = normalizeVector(playingState.velocityX, playingState.velocityY, playingState.rollDirection, 0.2);
-  const releaseDirection = normalizeVector(
-    playingState.releaseDirectionX,
-    playingState.releaseDirectionY,
-    playingState.rollDirection,
-    0.25,
-  );
-  const releaseSideWeight = Math.max(0.35, Math.abs(releaseDirection.x) * 1.35);
+  const prdX = playingState.releaseDirectionX;
+  const prdY = playingState.releaseDirectionY;
+  const currentDirection = normalizeVector(playingState.velocityX, playingState.velocityY, prdX, prdY);
+  const releaseDirection = normalizeVector(prdX, prdY, playingState.rollDirection, prdY);
   const sideFallback = Math.sign(releaseDirection.x || currentDirection.x || playingState.rollDirection);
   const blendedDirection = normalizeVector(
     currentDirection.x * 0.45 + releaseDirection.x * 1.5 + sideFallback * 0.4,
     currentDirection.y * 0.52 + releaseDirection.y * 0.7,
     sideFallback,
-    0.42,
+    prdY,
   );
   const rollSpeed = Math.max(
     physics.rollBaseSpeed,
     Math.min(physics.rollBaseSpeed + playingState.currentSpeed * physics.rollSpeedFactor, 300),
   );
 
-  playingState.velocityX = rollSpeed * blendedDirection.x * Math.max(0.9, releaseSideWeight);
-  playingState.velocityY = rollSpeed * blendedDirection.y * 0.5;
-
-  const newSpeed = Math.hypot(playingState.velocityX, playingState.velocityY);
-  if (newSpeed > preRollSpeed && newSpeed > 0.0001) {
-    const scale = preRollSpeed / newSpeed;
-    playingState.velocityX *= scale;
-    playingState.velocityY *= scale;
+  playingState.velocityX = rollSpeed * blendedDirection.x;
+  playingState.velocityY = rollSpeed * blendedDirection.y;
+  const afterRollSpeed = Math.hypot(playingState.velocityX, playingState.velocityY);
+  if (afterRollSpeed > preRollSpeed && afterRollSpeed > 0.0001) {
+    const clampScale = preRollSpeed / afterRollSpeed;
+    playingState.velocityX *= clampScale;
+    playingState.velocityY *= clampScale;
   }
   playingState.currentSpeed = Math.hypot(playingState.velocityX, playingState.velocityY);
 }
@@ -1820,7 +1836,7 @@ function resetPlayingState() {
   playingState.curveAccelerationX = 0;
   playingState.curveRampDuration = 1;
   playingState.releaseDirectionX = 0;
-  playingState.releaseDirectionY = 1;
+  playingState.releaseDirectionY = 0;
   playingState.releaseCurve = 0;
   playingState.rollDirection = 1;
   playingState.batterPointerId = null;
@@ -1866,17 +1882,32 @@ function launchPlayingBall(vector) {
     physics.curveMaxDuration,
   );
 
-  playingState.velocityX = compressScreenVelocity(scaledVelocityX * 0.45, physics.maxSideSpeed);
-  const rawVy = compressScreenVelocity(scaledVelocityY, physics.maxForwardSpeed);
-  playingState.velocityY = Math.max(physics.minForwardSpeed, rawVy);
+  // 投げ方向を前方/側方に分解して速度に変換（全方向対応）
+  const lrdX = playingState.releaseDirectionX;
+  const lrdY = playingState.releaseDirectionY;
+  const scaledForward = scaledVelocityX * lrdX + scaledVelocityY * lrdY;
+  const scaledSide = scaledVelocityX * (-lrdY) + scaledVelocityY * lrdX;
+  const forwardV = compressScreenVelocity(scaledForward, physics.maxForwardSpeed);
+  const sideV = compressScreenVelocity(scaledSide * 0.45, physics.maxSideSpeed);
+  playingState.velocityX = forwardV * lrdX + sideV * (-lrdY);
+  playingState.velocityY = forwardV * lrdY + sideV * lrdX;
+  // 最低速度保証
+  const launchTotalSpeed = Math.hypot(playingState.velocityX, playingState.velocityY);
+  if (launchTotalSpeed > 0.001 && launchTotalSpeed < physics.minForwardSpeed) {
+    const minScale = physics.minForwardSpeed / launchTotalSpeed;
+    playingState.velocityX *= minScale;
+    playingState.velocityY *= minScale;
+  }
 
   playingState.flightGravity = Math.max(120, physics.heightGravity - Math.min(90, scaledSpeed * 0.018));
 
   const zone = getPlayingStrikeZoneRect();
   const baseHeight = Math.min(92, physics.releaseHeight + scaledSpeed * physics.releaseHeightSpeedFactor * 2.2);
-  // ゾーンに着地前に届くための最低 initialHeight（距離 = zone.top - ballY, ball goes downward）
-  const distToZone = Math.max(0, zone.top - playingState.ballY);
-  const vy = Math.abs(playingState.velocityY);
+  // ゾーン中心までの投げ方向成分距離（全方向対応）
+  const lZoneCenterX = (zone.left + zone.right) * 0.5;
+  const lZoneCenterY = (zone.top + zone.bottom) * 0.5;
+  const distToZone = Math.max(0, (lZoneCenterX - playingState.ballX) * lrdX + (lZoneCenterY - playingState.ballY) * lrdY);
+  const vy = Math.hypot(playingState.velocityX, playingState.velocityY);
   const k = physics.dragPerSecond;
   const minHeightForZone =
     vy > distToZone * k
@@ -1969,8 +2000,7 @@ function animatePlaying(timeStamp) {
         playingState.height += playingState.heightVelocity * dt;
 
         // バウンド判定: 着地かつストライクゾーン上方（まだゾーンに届いていない）
-        const zone = getPlayingStrikeZoneRect();
-        const landedBeforeZone = previousHeight > 0 && playingState.height <= 0 && playingState.ballY < zone.top;
+        const landedBeforeZone = previousHeight > 0 && playingState.height <= 0 && !playingState.pitchJudged;
         if (playingState.flightElapsed >= playingState.bounceMinTime && landedBeforeZone && playingState.heightVelocity < 0) {
           applyPlayingBounce();
         }
@@ -1978,7 +2008,12 @@ function animatePlaying(timeStamp) {
         playingState.currentSpeed = Math.hypot(playingState.velocityX, playingState.velocityY);
 
         const readyToRollBySpeed = playingState.currentSpeed <= physics.rollTriggerSpeed;
-        const readyToRollByPosition = playingState.pitchJudged && playingState.ballY >= rect.height - physics.rollTopBand;
+        const readyToRollByPosition =
+          playingState.pitchJudged &&
+          (playingState.ballY >= rect.height - physics.rollTopBand ||
+            playingState.ballY <= physics.rollTopBand ||
+            playingState.ballX <= physics.rollTopBand ||
+            playingState.ballX >= rect.width - physics.rollTopBand);
         if (playingState.bounceCount > 0 && (readyToRollBySpeed || readyToRollByPosition)) {
           startPlayingRolling();
         }
@@ -2017,19 +2052,22 @@ function animatePlaying(timeStamp) {
       }
     }
 
-    // ストライクゾーン通過判定（バウンド済みは常にボール）
+    // ストライクゾーン侵入判定（バウンド済みは常にボール）
     if (!playingState.pitchJudged && !playingState.isHit) {
-      const call = getZonePathCall(previousX, previousY, playingState.ballX, playingState.ballY, getPlayingStrikeZoneRect(), "down", playingState.bounceCount > 0);
-      if (call) {
+      const pzone = getPlayingStrikeZoneRect();
+      const inZone =
+        playingState.ballX >= pzone.left && playingState.ballX <= pzone.right &&
+        playingState.ballY >= pzone.top && playingState.ballY <= pzone.bottom;
+      if (inZone) {
         playingState.pitchJudged = true;
-        updatePlayingCall(call === "strike" ? "STRIKE" : "BALL", call === "strike" ? "is-strike" : "is-ball");
+        const isStrike = playingState.bounceCount === 0;
+        updatePlayingCall(isStrike ? "STRIKE" : "BALL", isStrike ? "is-strike" : "is-ball");
       }
     }
 
     // 投球がゾーン横を素通りした場合
     if (!playingState.pitchJudged && !playingState.isHit) {
-      const zone = getPlayingStrikeZoneRect();
-      if ((playingState.ballX < -28 || playingState.ballX > rect.width + 28) && playingState.ballY >= zone.top) {
+      if (playingState.ballX < -28 || playingState.ballX > rect.width + 28) {
         playingState.pitchJudged = true;
         updatePlayingCall("BALL", "is-ball");
       }
@@ -2151,15 +2189,11 @@ function endPlayingPointer(event) {
     playingState.pitcherPointerId = null;
     const vector = getPlayingPitcherReleaseVector();
     if (!vector || vector.speed < 120) {
-      // 弱投 → 下方向ソフトリリース
+      // 弱投 → 方向保持ソフトリリース
       const fallback = createPlayingSoftReleaseVector(vector);
       launchPlayingBall(fallback);
-    } else if (vector.velocityY > 80) {
-      // 下方向スワイプ（バッター側へ向かう）のみ投球
-      launchPlayingBall(vector);
     } else {
-      // 横や上スワイプは投球なし → ボールを非表示
-      hidePlayingBall();
+      launchPlayingBall(vector);
     }
     playingState.pitcherTrail = [];
   } else if (event.pointerId === playingState.batterPointerId) {
