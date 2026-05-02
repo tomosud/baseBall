@@ -336,7 +336,7 @@ function gameProcessOut(reason) {
   if (gameState.phase !== "playing") return;
   gameState.outs++;
   updateStatusBar();
-  updatePlayingCall(reason || "OUT!", "is-ball");
+  updatePlayingCall(reason || "OUT!", "is-out");
   resetAtBat();
   saveGameToDB();
   if (gameState.outs >= 3) {
@@ -1974,7 +1974,7 @@ function isPlayingBallInContactBand() {
 
 function updatePlayingCall(text, kind = "") {
   elements.playingCall.textContent = text;
-  elements.playingCall.classList.remove("is-strike", "is-ball");
+  elements.playingCall.classList.remove("is-strike", "is-ball", "is-out");
   if (kind) elements.playingCall.classList.add(kind);
 }
 
@@ -2211,7 +2211,7 @@ function checkPlayingBallHitsBases() {
 
     if (stillHasRunners) {
       // 走者がまだいる → ボールを残してフィールダーが拾い直せる状態に
-      updatePlayingCall("OUT!", "is-ball");
+      updatePlayingCall("OUT!", "is-out");
       gameProcessOut("OUT!");
       playingState.isHit = false;
       playingState.isFielderThrow = true;
@@ -2225,7 +2225,7 @@ function checkPlayingBallHitsBases() {
       playingState.isPitched = false;
       playingState.isFielderThrow = false;
       hidePlayingBall();
-      updatePlayingCall("OUT!", "is-ball");
+      updatePlayingCall("OUT!", "is-out");
       gameProcessOut("OUT!");
     }
     return true;
@@ -2651,10 +2651,13 @@ function beginPlayingPointer(event) {
     if (playingState.pitcherPointerId !== null) return;
 
     // ピックアップ判定: ヒット or フィールダースローが赤くなった（isResting）後のみ拾える
+    // ボール位置に十分近い場合のみピックアップ可
     const ballOnField =
       (playingState.isHit || playingState.isFielderThrow) && playingState.isResting;
-    playingState.isFielderThrow = ballOnField;
-    if (ballOnField) {
+    const nearBall = ballOnField &&
+      Math.hypot(point.x - playingState.ballX, point.y - playingState.ballY) <= 36;
+    playingState.isFielderThrow = nearBall;
+    if (nearBall) {
       playingState.isBallActive = false;
       playingState.isHit = false;
       playingState.isResting = false;
