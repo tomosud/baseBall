@@ -1,4 +1,103 @@
-# 野球盤ゲーム計画
+# Playing Proto A → 対戦ゲーム化 実装計画
+
+## 方針
+
+**プレイ内容は変えない。UIと状態遷移だけ追加する。**
+
+---
+
+## 追加するゲーム状態
+
+```js
+const gameState = {
+  inning: 1,        // 1〜9
+  isTop: true,      // true=表(青軍攻撃), false=裏(赤軍攻撃)
+  outs: 0,          // 0〜2 (3でチェンジ)
+  balls: 0,         // 0〜3 (4でフォアボール→1塁)
+  strikes: 0,       // 0〜2 (3で三振アウト)
+  score: [0, 0],    // [青軍, 赤軍]
+  inningScores: Array.from({length:9}, ()=>[0,0]), // 各回得点
+  phase: "gameset", // "pregame"|"playing"|"change"|"gameset"
+};
+```
+
+---
+
+## 画面フロー
+
+```
+[PLAY BALL 画面]
+  → タップ → "playing" フェーズへ
+
+[通常プレイ] (既存 Playing Proto A そのまま)
+  ↓ STRIKE 3回      → 三振アウト → processOut()
+  ↓ BALL 4回        → フォアボール → 走者1塁追加 → カウントリセット
+  ↓ HIT             → 走者フェーズ (既存)
+  ↓ 走者OUT         → processOut() (既存)
+  ↓ ホームイン      → processScore() (既存 showPlayingScore を置き換え)
+
+[3アウト → チェンジ]
+  → "CHANGE!" 表示 1.5秒
+  → 表裏切替 / 9回裏終了チェック
+
+[9回裏終了 → ゲームセット]
+  → "GAME SET!" + 勝者表示
+  → もう一度ボタン
+```
+
+---
+
+## 追加するUI要素
+
+### ステータスバー (playing-surface 最上部、壁より上)
+
+```
+青軍 0  B●○○ S●○ O○○  1回表
+赤軍 0
+```
+
+HTML: `#playingStatusBar`
+- チーム名2行 + 得点
+- B/S/O ドット
+- イニング表示
+
+### オーバーレイ (中央大テキスト)
+
+- PLAY BALL（開始前タップ待ち）
+- CHANGE!（チェンジ演出）
+- GAME SET! + 勝者（終了）
+- もう一度ボタン（終了後）
+
+---
+
+## 接続ポイント（既存コードへの変更）
+
+| 既存の場所 | 追加処理 |
+|---|---|
+| `updatePlayingCall("STRIKE")` 直後 | `gameProcessStrike()` |
+| `updatePlayingCall("BALL")` 直後 | `gameProcessBall()` |
+| `showPlayingScore()` | `gameProcessScore()` に置き換え |
+| `checkPlayingBallHitsBases()` のアウト処理 | `gameProcessOut()` 追加 |
+| `showPlayingScreen()` | `gameState` 初期化 + PLAY BALL 表示 |
+
+---
+
+## 壁ラインの位置
+
+ステータスバー高さ分だけ下げる。  
+現在 `top: calc(env(safe-area-inset-top) + 52px)` → `80px` に変更。
+
+---
+
+## スコープ外（実装しない）
+
+- ファウルボール
+- フォアボール以外の走者進塁ルール
+- 満塁押し出し
+- 延長戦
+- チーム名入力
+- 履歴保存
+
 
 ---
 

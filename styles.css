@@ -443,11 +443,171 @@ button {
   user-select: none;
 }
 
+/* ステータスバー（スコア+イニング） */
+.playing-status-bar {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 0px);
+  left: 0;
+  right: 0;
+  height: 36px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  z-index: 10;
+  background: rgba(0,0,0,0.55);
+  border-bottom: 1px solid rgba(255,255,255,0.10);
+  pointer-events: none;
+}
+
+.status-team {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.status-team-name {
+  font-size: 0.65rem;
+  letter-spacing: 0.05em;
+}
+
+.status-team-score {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #f2f2f2;
+  min-width: 14px;
+  text-align: right;
+}
+
+#statusTeamBlue .status-team-name { color: #4fc3f7; }
+#statusTeamRed  .status-team-name { color: #ef5350; }
+
+.status-team.is-batting .status-team-score { color: #ffd60a; }
+
+.status-inning {
+  font-size: 0.65rem;
+  color: rgba(255,255,255,0.55);
+  white-space: nowrap;
+}
+
+/* BSOバー（壁の下） */
+.playing-bso-bar {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 83px);
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.status-bso-group {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.status-bso-label {
+  font-size: 0.6rem;
+  color: rgba(255,255,255,0.45);
+  margin-right: 2px;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.35);
+  background: transparent;
+  display: inline-block;
+}
+
+.status-dot.is-on {
+  background: #ffd60a;
+  border-color: #ffd60a;
+}
+
+/* ゲームオーバーレイ */
+.playing-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.72);
+  z-index: 20;
+  gap: 14px;
+  pointer-events: auto;
+}
+
+.playing-overlay.is-hidden {
+  display: none;
+}
+
+.overlay-message {
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: #f2f2f2;
+  text-align: center;
+}
+
+.overlay-sub {
+  font-size: 1rem;
+  color: rgba(255,255,255,0.7);
+  text-align: center;
+  white-space: pre-line;
+  min-height: 1.5em;
+}
+
+.overlay-button {
+  margin-top: 8px;
+  padding: 10px 28px;
+  background: #2c2c2c;
+  color: #f2f2f2;
+  border: 1px solid rgba(255,255,255,0.25);
+  border-radius: 8px;
+  font-size: 1rem;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.playing-overlay.is-tap-start {
+  cursor: pointer;
+}
+
+/* エリア着色 */
+.playing-area-tint {
+  position: absolute;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.playing-area-tint.is-top-area {
+  top: calc(env(safe-area-inset-top) + 80px);
+  height: calc(50% - env(safe-area-inset-top) - 80px);
+}
+
+.playing-area-tint.is-bottom-area {
+  top: 50%;
+  bottom: 0;
+}
+
+.playing-area-tint.team-blue { background: rgba(79, 195, 247, 0.06); }
+.playing-area-tint.team-red  { background: rgba(239, 83, 80, 0.06); }
+
 .playing-top-wall {
   position: absolute;
   left: 0;
   right: 0;
-  top: calc(env(safe-area-inset-top) + 52px);
+  top: calc(env(safe-area-inset-top) + 80px);
   height: 0;
   border-top: 2px solid rgba(255, 255, 255, 0.35);
   pointer-events: none;
@@ -468,20 +628,21 @@ button {
 .playing-label {
   position: absolute;
   z-index: 4;
-  font-size: 0.72rem;
-  color: rgba(255, 255, 255, 0.38);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.45);
   pointer-events: none;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  line-height: 1.4;
 }
 
 .playing-label.is-pitcher {
-  top: calc(env(safe-area-inset-top) + 10px);
+  top: calc(env(safe-area-inset-top) + 107px);
   left: calc(env(safe-area-inset-left) + 12px);
 }
 
 .playing-label.is-batter {
-  bottom: calc(50% + 10px);
+  top: calc(50% + 8px);
   left: calc(env(safe-area-inset-left) + 12px);
 }
 

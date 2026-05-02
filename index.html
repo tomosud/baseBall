@@ -18,6 +18,46 @@
 
     <section class="screen prototype-screen is-hidden" id="playingScreen" aria-label="playing prototype A">
       <div class="playing-surface" id="playingSurface">
+        <!-- ステータスバー（スコア＋イニング） -->
+        <div class="playing-status-bar" id="playingStatusBar">
+          <div class="status-team" id="statusTeamBlue">
+            <span class="status-team-name">青軍</span>
+            <span class="status-team-score" id="statusScoreBlue">0</span>
+          </div>
+          <div class="status-inning" id="statusInning">1回表</div>
+          <div class="status-team" id="statusTeamRed">
+            <span class="status-team-name">赤軍</span>
+            <span class="status-team-score" id="statusScoreRed">0</span>
+          </div>
+        </div>
+        <!-- BSO（壁の下） -->
+        <div class="playing-bso-bar" id="playingBsoBar">
+          <span class="status-bso-group">
+            <span class="status-bso-label">B</span>
+            <span class="status-dot" id="statusB0"></span>
+            <span class="status-dot" id="statusB1"></span>
+            <span class="status-dot" id="statusB2"></span>
+          </span>
+          <span class="status-bso-group">
+            <span class="status-bso-label">S</span>
+            <span class="status-dot" id="statusS0"></span>
+            <span class="status-dot" id="statusS1"></span>
+          </span>
+          <span class="status-bso-group">
+            <span class="status-bso-label">O</span>
+            <span class="status-dot" id="statusO0"></span>
+            <span class="status-dot" id="statusO1"></span>
+          </span>
+        </div>
+        <!-- ゲームオーバーレイ -->
+        <div class="playing-overlay is-hidden" id="playingOverlay">
+          <div class="overlay-message" id="overlayMessage">PLAY BALL</div>
+          <div class="overlay-sub" id="overlaySub"></div>
+          <button type="button" class="overlay-button is-hidden" id="overlayButton">もう一度</button>
+        </div>
+        <!-- エリア着色 -->
+        <div class="playing-area-tint is-top-area" id="playingAreaTop"></div>
+        <div class="playing-area-tint is-bottom-area" id="playingAreaBottom"></div>
         <div class="playing-top-wall" id="playingTopWall" aria-hidden="true"></div>
         <div class="playing-divider" id="playingDivider" aria-hidden="true"></div>
         <div class="playing-label is-pitcher" id="playingLabelPitcher" aria-hidden="true">Pitcher</div>
