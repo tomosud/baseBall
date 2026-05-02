@@ -443,21 +443,19 @@ button {
   user-select: none;
 }
 
-/* ステータスバー（スコア+イニング） */
+/* スコア・イニング（BSOバー直下） */
 .playing-status-bar {
   position: absolute;
-  top: calc(env(safe-area-inset-top) + 0px);
+  top: calc(env(safe-area-inset-top) + 78px);
   left: 0;
   right: 0;
-  height: 36px;
-  display: flex;
-  flex-direction: row;
+  height: 52px;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: space-between;
   padding: 0 12px;
-  z-index: 10;
-  background: rgba(0,0,0,0.55);
-  border-bottom: 1px solid rgba(255,255,255,0.10);
+  z-index: 5;
+  background: transparent;
   pointer-events: none;
 }
 
@@ -473,11 +471,12 @@ button {
 }
 
 .status-team-score {
-  font-size: 1.05rem;
+  font-size: 3rem;
   font-weight: 700;
   color: #f2f2f2;
-  min-width: 14px;
+  min-width: 40px;
   text-align: right;
+  line-height: 1;
 }
 
 #statusTeamBlue .status-team-name { color: #4fc3f7; }
@@ -486,15 +485,21 @@ button {
 .status-team.is-batting .status-team-score { color: #ffd60a; }
 
 .status-inning {
-  font-size: 0.65rem;
+  font-size: 1.8rem;
+  font-weight: 600;
   color: rgba(255,255,255,0.55);
   white-space: nowrap;
+  text-align: center;
+}
+
+#statusTeamRed {
+  justify-content: flex-end;
 }
 
 /* BSOバー（壁の下） */
 .playing-bso-bar {
   position: absolute;
-  top: calc(env(safe-area-inset-top) + 83px);
+  top: calc(env(safe-area-inset-top) + 55px);
   left: 0;
   right: 0;
   display: flex;
@@ -591,8 +596,8 @@ button {
 }
 
 .playing-area-tint.is-top-area {
-  top: calc(env(safe-area-inset-top) + 80px);
-  height: calc(50% - env(safe-area-inset-top) - 80px);
+  top: calc(env(safe-area-inset-top) + 52px);
+  height: calc(50% - env(safe-area-inset-top) - 52px);
 }
 
 .playing-area-tint.is-bottom-area {
@@ -607,7 +612,7 @@ button {
   position: absolute;
   left: 0;
   right: 0;
-  top: calc(env(safe-area-inset-top) + 80px);
+  top: calc(env(safe-area-inset-top) + 52px);
   height: 0;
   border-top: 2px solid rgba(255, 255, 255, 0.35);
   pointer-events: none;
@@ -637,7 +642,7 @@ button {
 }
 
 .playing-label.is-pitcher {
-  top: calc(env(safe-area-inset-top) + 107px);
+  top: calc(env(safe-area-inset-top) + 135px);
   left: calc(env(safe-area-inset-left) + 12px);
 }
 

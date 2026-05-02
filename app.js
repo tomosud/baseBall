@@ -317,7 +317,7 @@ function gameProcessBall() {
           fromX: home.x, fromY: home.y,
           toBaseIndex: 0, progress: 0,
           state: "running", colorClass,
-          speed: 152,
+          speed: 122,
         });
         renderPlayingRunners();
       }
@@ -2032,7 +2032,7 @@ function spawnRunnerOnHit() {
       progress: 0,
       state: "running",
       colorClass,
-      speed: 152,
+      speed: 122,
     });
   }
 
@@ -2208,6 +2208,8 @@ function reflectPlayingBallFromBat() {
 function applyPlayingBounce() {
   updatePlayingCall("Bound!", "is-ball");
   applyPitchModelBounce(playingState, getPlayingStrikeZoneRect(), { startRolling: startPlayingRolling, noJudge: true });
+  playingState.isResting = true;
+  elements.playingBall.classList.add("is-resting");
 }
 
 function startPlayingRolling() {
@@ -2422,10 +2424,7 @@ function animatePlaying(timeStamp) {
     }
 
     setPlayingBallPosition(playingState.ballX, playingState.ballY);
-    updateContactableBall(
-      elements.playingBall,
-      playingState.isBallActive && !playingState.isHit && !playingState.isFielderThrow && !playingState.pitchJudged,
-    );
+    // Playing プロトではオレンジ（contactable）表示不要
 
     // 投球中: 塁ヒット判定（走者アウト）
     if (!playingState.isHit) { // isFielderThrow も isHit=false なので通過する
