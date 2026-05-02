@@ -180,7 +180,11 @@ button {
   right: 0;
   left: 0;
   height: 3px;
-  background: rgba(255, 159, 10, 0.9);
+  background: repeating-linear-gradient(
+    90deg,
+    rgba(255, 159, 10, 0.95) 0 18px,
+    transparent 18px 28px
+  );
   box-shadow: 0 0 10px rgba(255, 159, 10, 0.55);
 }
 
@@ -354,6 +358,11 @@ button {
   box-shadow: 0 0 10px rgba(255, 255, 255, 0.35);
 }
 
+.batting-ball.is-contactable {
+  background: #ff9f0a;
+  box-shadow: 0 0 12px rgba(255, 159, 10, 0.72);
+}
+
 .batting-ball.is-resting {
   background: #ff3b30;
   box-shadow: 0 0 10px rgba(255, 59, 48, 0.5);
@@ -376,7 +385,7 @@ button {
   width: 59px;
   height: 8px;
   clip-path: polygon(0 28%, 100% 0, 100% 100%, 0 72%);
-  background: linear-gradient(90deg, rgba(235, 235, 235, 0.72), rgba(255, 255, 255, 0.96));
+  background: linear-gradient(90deg, rgba(130, 130, 130, 0.72), rgba(185, 185, 185, 0.94));
   box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.25);
   transform: translate(0, 0) rotate(36deg);
   transform-origin: 0 50%;
@@ -391,6 +400,39 @@ button {
 .bat.is-hit {
   background: linear-gradient(90deg, rgba(50, 215, 75, 0.72), #32d74b);
   box-shadow: 0 0 20px rgba(50, 215, 75, 0.75);
+}
+
+.contact-miss-marker {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 5;
+  width: 28px;
+  height: 28px;
+  margin-left: -14px;
+  margin-top: -14px;
+  pointer-events: none;
+}
+
+.contact-miss-marker::before,
+.contact-miss-marker::after {
+  content: "";
+  position: absolute;
+  top: 13px;
+  left: 3px;
+  width: 22px;
+  height: 3px;
+  border-radius: 999px;
+  background: #ff3b30;
+  box-shadow: 0 0 8px rgba(255, 59, 48, 0.8);
+}
+
+.contact-miss-marker::before {
+  transform: rotate(45deg);
+}
+
+.contact-miss-marker::after {
+  transform: rotate(-45deg);
 }
 
 /* ===== Playing Prototype A ===== */
