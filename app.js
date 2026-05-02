@@ -457,6 +457,7 @@ const physics = {
   batMoveScale: 1 / 3,
   batMoveYScale: 1 / 3,
   batVerticalRangeRatio: 1,
+  batDownRangeScale: 1.5,
   batLength: 59,
   batRestAngle: Math.PI / 8,
   batMaxLoadAngle: Math.PI / 2.4,
@@ -822,7 +823,7 @@ function placeBatModelOnSwingLine(model, surfaceElement, getZone, setPosition, p
       ? model.batBaseY
       : model.batBaseY + (pointerY - model.batPointerStartY) * physics.batMoveYScale;
   const zoneCenterY = (zone.top + zone.bottom) * 0.5;
-  const clampedY = clamp(y, zoneCenterY, model.batBaseY + verticalHalfRange);
+  const clampedY = clamp(y, zoneCenterY, model.batBaseY + verticalHalfRange * physics.batDownRangeScale);
   const loadRatio =
     pointerY === null ? 0 : clamp((pointerY - model.batPointerStartY) / physics.batLoadDragDistance, 0, 1);
   const readyAngle =
@@ -2026,7 +2027,7 @@ function createSafeRunner(baseIndex, bases) {
     progress: 1,
     state: "safe",
     colorClass: getUnusedRunnerColor(),
-    speed: 98,
+    speed: 147,
   };
 }
 
@@ -2139,7 +2140,7 @@ function spawnRunnerOnHit() {
       progress: 0,
       state: "running",
       colorClass,
-      speed: 98,
+      speed: 147,
     });
   }
 
@@ -2947,7 +2948,7 @@ function restoreRunnersFromSave(savedRunners) {
       progress: 1,
       state: "safe",
       colorClass: r.colorClass,
-      speed: 98,
+      speed: 147,
     };
   });
   renderPlayingRunners();
