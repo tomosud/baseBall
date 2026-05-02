@@ -266,9 +266,11 @@ function updateStatusBar() {
   const inningLabel = `${gameState.inning}回${gameState.isTop ? "表" : "裏"}`;
   elements.statusInning.textContent = inningLabel;
 
-  // 攻撃チームを強調
-  elements.statusTeamBlue.classList.toggle("is-batting", gameState.isTop);
-  elements.statusTeamRed.classList.toggle("is-batting", !gameState.isTop);
+  // チームのスコア表示を現在の担当エリアへ移動する
+  elements.statusTeamBlue.className =
+    `status-team area-score team-blue ${gameState.isTop ? "is-bottom-score is-batting" : "is-top-score"}`;
+  elements.statusTeamRed.className =
+    `status-team area-score team-red ${gameState.isTop ? "is-top-score" : "is-bottom-score is-batting"}`;
 
   // BSO ドット
   const bDots = [elements.statusB0, elements.statusB1, elements.statusB2];
@@ -289,15 +291,20 @@ function updateStatusBar() {
   const batterColor  = gameState.isTop ? "team-blue" : "team-red";
   elements.playingAreaTop.className    = `playing-area-tint is-top-area ${pitcherColor}`;
   elements.playingAreaBottom.className = `playing-area-tint is-bottom-area ${batterColor}`;
+  elements.playingLabelPitcher.classList.remove("team-red", "team-blue");
+  elements.playingLabelBatter.classList.remove("team-red", "team-blue");
+  elements.playingLabelPitcher.classList.add(pitcherColor);
+  elements.playingLabelBatter.classList.add(batterColor);
 }
 
 function gameProcessStrike() {
   if (gameState.phase !== "playing") return;
   gameState.strikes++;
   updateStatusBar();
-  saveGameToDB();
   if (gameState.strikes >= 3) {
     setTimeout(() => gameProcessOut("三振!"), 600);
+  } else {
+    saveGameToDB();
   }
 }
 
@@ -306,29 +313,15 @@ function gameProcessBall() {
   gameState.balls++;
   updateStatusBar();
   if (gameState.balls >= 4) {
-    // フォアボール: 走者1塁
     setTimeout(() => {
       updatePlayingCall("フォアボール", "is-ball");
-      const rect = elements.playingSurface.getBoundingClientRect();
-      const home = getPlayingHomePlate(rect);
-      const RUNNER_COLORS = ["color-0", "color-1", "color-2"];
-      if (playingState.runners.length < 3) {
-        const usedColors = new Set(playingState.runners.map((r) => r.colorClass));
-        const colorClass = RUNNER_COLORS.find((c) => !usedColors.has(c)) || RUNNER_COLORS[0];
-        playingState.runners.push({
-          id: Date.now(),
-          x: home.x, y: home.y,
-          fromX: home.x, fromY: home.y,
-          toBaseIndex: 0, progress: 0,
-          state: "running", colorClass,
-          speed: 98,
-        });
-        renderPlayingRunners();
-      }
+      advanceRunnersOnWalk();
       resetAtBat();
       saveGameToDB();
       finishPlayingPitch("READY");
     }, 400);
+  } else {
+    saveGameToDB();
   }
 }
 
@@ -344,13 +337,17 @@ function gameProcessOut(reason) {
   }
 }
 
-function gameProcessScore() {
-  if (gameState.phase !== "playing") return;
+function addRunForBattingTeam() {
   const teamIdx = gameState.isTop ? 0 : 1; // 表=青軍攻撃
   gameState.score[teamIdx]++;
   const inningIdx = gameState.inning - 1;
   if (inningIdx < 9) gameState.inningScores[inningIdx][teamIdx]++;
   updateStatusBar();
+}
+
+function gameProcessScore() {
+  if (gameState.phase !== "playing") return;
+  addRunForBattingTeam();
   saveGameToDB();
   updatePlayingCall("得点！", "is-strike");
   setTimeout(() => {
@@ -1973,9 +1970,22 @@ function isPlayingBallInContactBand() {
 }
 
 function updatePlayingCall(text, kind = "") {
+  if (text === "HIT" || text === "SWING!" || text === "READY") {
+    text = "";
+    kind = "";
+  }
+
   elements.playingCall.textContent = text;
   elements.playingCall.classList.remove("is-strike", "is-ball", "is-out");
   if (kind) elements.playingCall.classList.add(kind);
+
+  if (text === "STRIKE" || text === "BALL") {
+    setTimeout(() => {
+      if (elements.playingCall.textContent === text) {
+        updatePlayingCall("");
+      }
+    }, 550);
+  }
 }
 
 function updatePlayingDebug() {
@@ -1988,10 +1998,67 @@ function updatePlayingDebug() {
 
 const RUNNER_COLORS = ["color-0", "color-1", "color-2"];
 
+function getUnusedRunnerColor() {
+  const usedColors = new Set(playingState.runners.map((r) => r.colorClass));
+  return RUNNER_COLORS.find((colorClass) => !usedColors.has(colorClass)) || RUNNER_COLORS[0];
+}
+
+function placeRunnerOnBase(runner, baseIndex, bases) {
+  const base = bases[baseIndex];
+  runner.x = base.x;
+  runner.y = base.y;
+  runner.fromX = base.x;
+  runner.fromY = base.y;
+  runner.toBaseIndex = baseIndex;
+  runner.progress = 1;
+  runner.state = "safe";
+}
+
+function createSafeRunner(baseIndex, bases) {
+  const base = bases[baseIndex];
+  return {
+    id: Date.now() + Math.random(),
+    x: base.x,
+    y: base.y,
+    fromX: base.x,
+    fromY: base.y,
+    toBaseIndex: baseIndex,
+    progress: 1,
+    state: "safe",
+    colorClass: getUnusedRunnerColor(),
+    speed: 98,
+  };
+}
+
+function advanceRunnersOnWalk() {
+  const rect = elements.playingSurface.getBoundingClientRect();
+  const bases = getPlayingBasePositions(rect);
+  const safeRunners = playingState.runners.filter((runner) => runner.state === "safe");
+  const runnerByBase = new Map(safeRunners.map((runner) => [runner.toBaseIndex, runner]));
+
+  if (runnerByBase.has(0)) {
+    if (runnerByBase.has(1)) {
+      if (runnerByBase.has(2)) {
+        addRunForBattingTeam();
+        playingState.runners = playingState.runners.filter((runner) => runner !== runnerByBase.get(2));
+      }
+      placeRunnerOnBase(runnerByBase.get(1), 2, bases);
+    }
+    placeRunnerOnBase(runnerByBase.get(0), 1, bases);
+  }
+
+  playingState.runners = playingState.runners.filter((runner) => runner.state !== "out" && runner.state !== "scored");
+  if (!playingState.runners.some((runner) => runner.state === "safe" && runner.toBaseIndex === 0)) {
+    playingState.runners.push(createSafeRunner(0, bases));
+  }
+  renderPlayingRunners();
+}
+
 function getPlayingBasePositions(rect) {
+  const topWallY = getPlayingTopWallY();
   return [
     { x: rect.width * 0.94, y: rect.height * 0.36 }, // 1塁（右端）
-    { x: rect.width * 0.50, y: rect.height * 0.18 }, // 2塁（上端中央）
+    { x: rect.width * 0.50, y: topWallY + 34 }, // 2塁（上壁近く中央）
     { x: rect.width * 0.06, y: rect.height * 0.36 }, // 3塁（左端）
   ];
 }
@@ -2165,11 +2232,25 @@ function renderPlayingRunners() {
       dy = next.y - runner.y;
     }
 
-    const deg = Math.atan2(dy, dx) * (180 / Math.PI) + 90;
+    const deg = Math.atan2(dy, dx) * (180 / Math.PI);
     el.style.transform = `translate(${runner.x}px, ${runner.y}px) rotate(${deg}deg)`;
   });
 
   updatePlayingMode();
+  updatePlayingThrowTargets();
+}
+
+function updatePlayingThrowTargets() {
+  const targetEls = [elements.playingBase0, elements.playingBase1, elements.playingBase2, elements.playingHomeBase];
+  const targetIndexes = new Set(
+    playingState.runners
+      .filter((runner) => runner.state === "running")
+      .map((runner) => runner.toBaseIndex),
+  );
+
+  targetEls.forEach((el, index) => {
+    el.classList.toggle("is-throw-target", targetIndexes.has(index));
+  });
 }
 
 function checkPlayingBallHitsBases() {
@@ -2369,10 +2450,6 @@ function launchPlayingBall(vector) {
 }
 
 function finishPlayingPitch(message = "READY") {
-  // 空振りがあってヒットしなかった場合のみストライク加算
-  if (playingState.swingMissed && !playingState.isHit) {
-    gameProcessStrike();
-  }
   playingState.swingMissed = false;
   playingState.isBallActive = false;
   hidePlayingBall();
@@ -2401,9 +2478,11 @@ function animatePlaying(timeStamp) {
       elements.playingBat.classList.remove("is-swinging");
       setPlayingBatPosition(playingState.batX, playingState.batY, playingState.swingEndAngle);
       // 空振り判定: 投球後かつボールが当たっていない
-      if (playingState.isPitched && !playingState.isHit) {
+      if (playingState.isPitched && !playingState.isHit && !playingState.pitchJudged) {
         playingState.swingMissed = true;
+        playingState.pitchJudged = true;
         updatePlayingCall("STRIKE", "is-strike");
+        gameProcessStrike();
       }
     }
   }
@@ -2645,6 +2724,8 @@ function isTopHalf(y) {
 }
 
 function beginPlayingPointer(event) {
+  if (gameState.phase !== "playing" || !playingState.isRunning) return;
+
   const point = getPlayingSurfacePoint(event);
   if (isTopHalf(point.y)) {
     // ピッチャー側
@@ -2837,13 +2918,15 @@ function loadGameFromDB() {
 }
 
 function applyLoadedGame(data) {
-  gameState.inning = data.inning;
-  gameState.isTop = data.isTop;
-  gameState.outs = data.outs;
-  gameState.balls = data.balls;
-  gameState.strikes = data.strikes;
-  gameState.score = [...data.score];
-  gameState.inningScores = data.inningScores.map((r) => [...r]);
+  gameState.inning = clamp(Number(data.inning) || 1, 1, 9);
+  gameState.isTop = Boolean(data.isTop);
+  gameState.outs = clamp(Number(data.outs) || 0, 0, 2);
+  gameState.balls = clamp(Number(data.balls) || 0, 0, 3);
+  gameState.strikes = clamp(Number(data.strikes) || 0, 0, 2);
+  gameState.score = Array.isArray(data.score) ? [...data.score] : [0, 0];
+  gameState.inningScores = Array.isArray(data.inningScores)
+    ? data.inningScores.map((r) => [...r])
+    : Array.from({ length: 9 }, () => [0, 0]);
   gameState.phase = "playing";
 }
 
@@ -2870,7 +2953,7 @@ function restoreRunnersFromSave(savedRunners) {
   renderPlayingRunners();
 }
 
-// 起動: セーブデータがあれば自動再開、なければ新規ゲーム
+// 起動: セーブデータがあれば自動再開、なければメニュー表示
 loadGameFromDB().then((saved) => {
   if (saved) {
     applyLoadedGame(saved);
@@ -2888,6 +2971,7 @@ loadGameFromDB().then((saved) => {
       playingState.animationFrameId = window.requestAnimationFrame(animatePlaying);
     }, 1200);
   } else {
-    showPlayingScreen();
+    resetGameState();
+    updateStatusBar();
   }
 });
