@@ -1884,6 +1884,7 @@ elements.battingBackButton.addEventListener("click", showMainScreen);
 elements.overlayButton.addEventListener("click", () => { showPlayingScreen(); });
 
 // リセットボタン長押し（3秒）
+let cancelResetHold = () => {};
 (function () {
   let holdTimer = null;
   const btn = elements.playingResetBtn;
@@ -1905,6 +1906,16 @@ elements.overlayButton.addEventListener("click", () => { showPlayingScreen(); })
     indicatorBar.classList.remove("is-filling");
   }
 
+  function cancelHold() {
+    clearTimeout(holdTimer);
+    holdTimer = null;
+    btn.classList.remove("is-holding");
+    hideIndicator();
+    choiceOverlay.classList.add("is-hidden");
+  }
+
+  cancelResetHold = cancelHold;
+
   function startHold(e) {
     e.preventDefault();
     e.stopPropagation();
@@ -1917,15 +1928,8 @@ elements.overlayButton.addEventListener("click", () => { showPlayingScreen(); })
     }, 3000);
   }
 
-  function cancelHold() {
-    clearTimeout(holdTimer);
-    holdTimer = null;
-    btn.classList.remove("is-holding");
-    hideIndicator();
-  }
-
-  btn3.addEventListener("click", () => { choiceOverlay.classList.add("is-hidden"); showPlayingScreen(3); });
-  btn9.addEventListener("click", () => { choiceOverlay.classList.add("is-hidden"); showPlayingScreen(9); });
+  btn3.addEventListener("click", () => { cancelHold(); showPlayingScreen(3); });
+  btn9.addEventListener("click", () => { cancelHold(); showPlayingScreen(9); });
 
   btn.addEventListener("pointerdown", startHold);
   btn.addEventListener("pointerup", cancelHold);
@@ -2705,13 +2709,12 @@ function animatePlaying(timeStamp) {
 }
 
 function showPlayingScreen(maxInnings = 9) {
+  cancelResetHold();
   stopPitchAnimation();
   stopBattingAnimation();
   stopPlayingAnimation();
   hideBall();
   hideBattingBall();
-  document.getElementById("resetChoiceOverlay").classList.add("is-hidden");
-  document.getElementById("holdIndicator").classList.add("is-hidden");
   elements.mainScreen.classList.add("is-hidden");
   elements.prototypeScreen.classList.add("is-hidden");
   elements.battingScreen.classList.add("is-hidden");
@@ -3015,6 +3018,7 @@ function restoreRunnersFromSave(savedRunners) {
 // 起動: セーブデータがあれば自動再開、なければメニュー表示
 loadGameFromDB().then((saved) => {
   if (saved) {
+    cancelResetHold();
     applyLoadedGame(saved);
     resetPlayingState();
     updateStatusBar();
