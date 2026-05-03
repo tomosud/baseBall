@@ -70,6 +70,7 @@ const battingState = {
   swingAngularSpeed: 0,
   swingGateSpeed: 0,
   swingElapsed: 0,
+  swingLingerTimer: 0,
 };
 
 const playingState = {
@@ -111,6 +112,7 @@ const playingState = {
   isSwinging: false,
   swingTimer: 0,
   swingElapsed: 0,
+  swingLingerTimer: 0,
   swingStartAngle: 0,
   swingEndAngle: 0,
   swingVelocityX: 0,
@@ -477,6 +479,14 @@ const physics = {
   batLoadDragDistance: 170,
   // フィールダーがボールをピックアップ後に引っ張れる最大距離（これ以上は弾くしかできない）
   fielderPickupMaxDrag: 72,
+  // スイング角度のアナログばらつき（ラジアン）
+  battingSwingAngleVariation: 0.05,
+  // スイング後の接触猶予時間（秒）
+  battingSwingLingerDuration: 0.03,
+  // 打球カーブ継承時の減衰レート（1/秒）
+  hitBallCurveDecayRate: 1.5,
+  // 打球カーブ適用の最小加速度閾値
+  hitBallCurveThreshold: 0.5,
 };
 
 function updateHeightDebug() {
@@ -856,7 +866,11 @@ function startBatModelSwing(model, batElement, vector) {
   model.swingTimer = physics.battingSwingDuration;
   model.swingElapsed = 0;
   model.swingStartAngle = model.batReadyAngle || physics.batRestAngle;
-  model.swingEndAngle = -model.swingStartAngle;
+  // 速いスイングほど振り抜き角度が大きくなる（アナログ感）+ 小さなランダムばらつき
+  const swingSpeedAboveThreshold = Math.max(0, vector.speed - physics.battingSwingThreshold);
+  const swingSpeedRatio = clamp(swingSpeedAboveThreshold / physics.battingSwingThreshold, 0, 1);
+  const swingAnalogVariation = (Math.random() - 0.5) * physics.battingSwingAngleVariation;
+  model.swingEndAngle = -(model.swingStartAngle + swingSpeedRatio * 0.15 + swingAnalogVariation);
   model.swingVelocityX = vector.velocityX;
   model.swingVelocityY = vector.velocityY;
   model.swingMoveVelocityX = vector.velocityX * physics.batMoveScale;
@@ -1019,6 +1033,8 @@ function reflectBallFromBatModel(model, options) {
   model.currentSpeed = Math.hypot(model.velocityX, model.velocityY);
   model.isHit = true;
   model.pitchJudged = true;
+  // 投球カーブの20%を打球に引き継ぐ（カーブ球を打つと打球もカーブする）
+  model.curveAccelerationX *= 0.2;
   if (options.missMarkerElement) {
     options.missMarkerElement.classList.add("is-hidden");
   }
@@ -1525,6 +1541,7 @@ function resetBattingState() {
   battingState.swingAngularSpeed = 0;
   battingState.swingGateSpeed = 0;
   battingState.swingElapsed = 0;
+  battingState.swingLingerTimer = 0;
   battingState.batAngle = physics.batRestAngle;
   battingState.batReadyAngle = physics.batRestAngle;
   battingState.swingStartAngle = physics.batRestAngle;
@@ -1610,6 +1627,8 @@ function animateBatting(timeStamp) {
       battingState.isSwinging = false;
       elements.bat.classList.remove("is-swinging");
       setBatPosition(battingState.batX, battingState.batY, battingState.swingEndAngle);
+      // スイング終了後に短い接触猶予ウィンドウを設ける（少し早いスイングでも当たるように）
+      battingState.swingLingerTimer = physics.battingSwingLingerDuration;
     }
   }
 
@@ -1625,6 +1644,11 @@ function animateBatting(timeStamp) {
       const hitDragFactor = Math.exp(-physics.battingHitDragPerSecond * deltaSeconds);
       battingState.velocityX *= hitDragFactor;
       battingState.velocityY *= hitDragFactor;
+      // 引き継いだ投球カーブを打球に適用（時間とともに減衰）
+      if (Math.abs(battingState.curveAccelerationX) > physics.hitBallCurveThreshold) {
+        battingState.velocityX += battingState.curveAccelerationX * deltaSeconds;
+        battingState.curveAccelerationX *= Math.exp(-physics.hitBallCurveDecayRate * deltaSeconds);
+      }
     }
 
     battingState.ballX += battingState.velocityX * deltaSeconds;
@@ -1642,10 +1666,15 @@ function animateBatting(timeStamp) {
       setBattingBallPosition(battingState.ballX, battingState.ballY);
     }
 
+    // リンガータイマー更新（スイング終了後の接触猶予）
+    if (battingState.swingLingerTimer > 0) {
+      battingState.swingLingerTimer = Math.max(0, battingState.swingLingerTimer - deltaSeconds);
+    }
+
     if (
-      battingState.isSwinging &&
+      (battingState.isSwinging || battingState.swingLingerTimer > 0) &&
       !battingState.isHit &&
-      !battingState.pitchJudged &&
+      (!battingState.pitchJudged || isBallInBattingContactBand()) &&
       checkBatModelContact(battingState, previousX, previousY)
     ) {
       updateContactableBall(elements.battingBall, false);
@@ -2627,6 +2656,7 @@ function resetPlayingState() {
   playingState.isSwinging = false;
   playingState.swingTimer = 0;
   playingState.swingElapsed = 0;
+  playingState.swingLingerTimer = 0;
   playingState.swingGateSpeed = 0;
   playingState.lastTick = 0;
   playingState.nextPitchReadyAt = 0;
@@ -2698,7 +2728,18 @@ function animatePlaying(timeStamp) {
       playingState.isSwinging = false;
       elements.playingBat.classList.remove("is-swinging");
       setPlayingBatPosition(playingState.batX, playingState.batY, playingState.swingEndAngle);
-      // 空振り判定: 投球後かつボールが当たっていない
+      // スイング終了後に短い接触猶予ウィンドウを設ける（少し早いスイングでも当たるように）
+      // 空振り判定はリンガー終了後まで遅延する
+      playingState.swingLingerTimer = physics.battingSwingLingerDuration;
+    }
+  }
+
+  // リンガータイマー処理（スイング終了後の接触猶予期間）
+  if (playingState.swingLingerTimer > 0) {
+    playingState.swingLingerTimer -= dt;
+    if (playingState.swingLingerTimer <= 0) {
+      playingState.swingLingerTimer = 0;
+      // 空振り判定: リンガー終了後にボールが当たっていなければストライク
       if (playingState.isPitched && !playingState.isHit && !playingState.pitchJudged) {
         playingState.swingMissed = true;
         playingState.pitchJudged = true;
@@ -2770,6 +2811,11 @@ function animatePlaying(timeStamp) {
       const drag = Math.exp(-physics.battingHitDragPerSecond * dt);
       playingState.velocityX *= drag;
       playingState.velocityY *= drag;
+      // 引き継いだ投球カーブを打球に適用（isHit のみ、フィールダー投球には適用しない）
+      if (playingState.isHit && Math.abs(playingState.curveAccelerationX) > physics.hitBallCurveThreshold) {
+        playingState.velocityX += playingState.curveAccelerationX * dt;
+        playingState.curveAccelerationX *= Math.exp(-physics.hitBallCurveDecayRate * dt);
+      }
       playingState.ballX += playingState.velocityX * dt;
       playingState.ballY += playingState.velocityY * dt;
       playingState.currentSpeed = Math.hypot(playingState.velocityX, playingState.velocityY);
@@ -2803,10 +2849,10 @@ function animatePlaying(timeStamp) {
 
     // バットとの接触判定
     if (
-      playingState.isSwinging &&
+      (playingState.isSwinging || playingState.swingLingerTimer > 0) &&
       !playingState.isHit &&
       !playingState.isFielderThrow &&
-      !playingState.pitchJudged &&
+      (!playingState.pitchJudged || isPlayingBallInContactBand()) &&
       checkBatModelContact(playingState, previousX, previousY)
     ) {
       updateContactableBall(elements.playingBall, false);
