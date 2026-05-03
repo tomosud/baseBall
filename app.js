@@ -934,11 +934,12 @@ function reflectBallFromBatModel(model, options) {
   const batDirection = normalizeVector(Math.cos(model.batAngle), Math.sin(model.batAngle), 1, 0);
   let normalX = -batDirection.y;
   let normalY = batDirection.x;
-  const incomingDot = model.velocityX * normalX + model.velocityY * normalY;
+  let incomingDot = model.velocityX * normalX + model.velocityY * normalY;
 
   if (incomingDot > 0) {
     normalX *= -1;
     normalY *= -1;
+    incomingDot = -incomingDot;
   }
 
   const reflectedX = model.velocityX - 2 * incomingDot * normalX;
@@ -971,13 +972,40 @@ function reflectBallFromBatModel(model, options) {
   // C: スイング速度が速いほど低い弾道（ライナー）
   const speedFactor = clamp(impulse / 350, 0, 1);
 
-  const launchSide = normalizeVector(reflectedX * 0.4 + contactDirection.x * impulse, 0, 0, 0).x;
-  const launchSpeed = clamp(220 + impulse + model.currentSpeed * 0.08, 260, 980);
-  const launchRawY = (contactDirection.y - 0.35)   // ベース（スイング方向）
-                   + normalReflectY * 0.25          // B: 法線反射Y
-                   + impactOffset * 0.5             // A: 当たり位置（上端 = より高く）
-                   + speedFactor * 0.25;            // C: 速いスイング = 低め
-  const launchDirection = normalizeVector(launchSide * 0.72, launchRawY, 0, -1);
+  // D: 芯度（バット中央寄りで当てるほど高い）
+  const sweetSpot = clamp(1 - Math.abs(hitRatio - 0.6) * 1.4, 0.35, 1);
+
+  // E: スクエア度（バット法線と入射方向が直角に近いほど高い）
+  const incomingMag = Math.hypot(model.velocityX, model.velocityY);
+  const squareness = incomingMag > 0.0001
+    ? clamp(Math.abs(incomingDot) / incomingMag, 0.3, 1)
+    : 0.6;
+
+  // 横方向は sign に潰さず、反射ベクトルとスイング寄与を連続値としてブレンドする。
+  // バット角度やスイング方向のわずかなズレが、そのまま打球の角度に反映される（アナログ感）。
+  // 真っすぐ・スクエアに当てれば自然と正面（投手方向）へ飛ぶ。
+  const blendX = reflectedX * 0.45 + contactDirection.x * impulse * 0.55;
+  const blendY = reflectedY * 0.45 + contactDirection.y * impulse * 0.55;
+
+  // 上下バイアス。impulse スケールに乗せて、速度感と弾道の一貫性を保つ。
+  // Y軸は画面下方向が正なので、上方向に飛ばすにはマイナスに倒す。
+  const verticalBiasScale = Math.max(impulse, 80);
+  const launchVx = blendX;
+  const launchVy = blendY
+                 + normalReflectY * impulse * 0.25       // B: 法線反射Y
+                 + impactOffset * verticalBiasScale * 0.45 // A: 当たり位置（下端 = ゴロ、上端 = フライ）
+                 + (speedFactor - 0.3) * verticalBiasScale * 0.18; // C: 速いスイング = 低め
+
+  // 打球速度：弱当たり（芯外し・かすり）は弱く、芯+スクエアでしっかり強くなる。
+  // 下限を 150 まで下げ、強さの幅を確保。
+  const launchSpeed = clamp(
+    120 + impulse * sweetSpot * (0.55 + 0.55 * squareness)
+        + model.currentSpeed * 0.08 * sweetSpot,
+    150,
+    980
+  );
+
+  const launchDirection = normalizeVector(launchVx, launchVy, 0, -1);
 
   model.velocityX = launchDirection.x * launchSpeed;
   model.velocityY = launchDirection.y * launchSpeed;
