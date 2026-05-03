@@ -869,16 +869,37 @@ function distanceToBatModelSegment(model, x, y) {
 }
 
 function checkBatModelContact(model, prevX, prevY) {
-  const steps = 4;
-  for (let i = 0; i <= steps; i++) {
-    const t = i / steps;
-    const x = prevX + (model.ballX - prevX) * t;
-    const y = prevY + (model.ballY - prevY) * t;
-    if (distanceToBatModelSegment(model, x, y) <= physics.batContactRadius) {
-      return true;
-    }
+  // Exact swept collision: min distance between ball-path segment and bat segment
+  const bax = model.batX;
+  const bay = model.batY;
+  const bbx = bax + Math.cos(model.batAngle) * physics.batLength;
+  const bby = bay + Math.sin(model.batAngle) * physics.batLength;
+
+  function ptSeg(px, py, ax, ay, bx, by) {
+    const dx = bx - ax, dy = by - ay;
+    const lenSq = dx * dx + dy * dy;
+    if (lenSq === 0) return Math.hypot(px - ax, py - ay);
+    const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lenSq));
+    return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
   }
-  return false;
+
+  // Segment intersection check (if ball path crosses bat → instant hit)
+  const d1x = model.ballX - prevX, d1y = model.ballY - prevY;
+  const d2x = bbx - bax, d2y = bby - bay;
+  const denom = d1x * d2y - d1y * d2x;
+  if (Math.abs(denom) > 1e-10) {
+    const t = ((bax - prevX) * d2y - (bay - prevY) * d2x) / denom;
+    const u = ((bax - prevX) * d1y - (bay - prevY) * d1x) / denom;
+    if (t >= 0 && t <= 1 && u >= 0 && u <= 1) return true;
+  }
+
+  const minDist = Math.min(
+    ptSeg(prevX, prevY, bax, bay, bbx, bby),
+    ptSeg(model.ballX, model.ballY, bax, bay, bbx, bby),
+    ptSeg(bax, bay, prevX, prevY, model.ballX, model.ballY),
+    ptSeg(bbx, bby, prevX, prevY, model.ballX, model.ballY),
+  );
+  return minDist <= physics.batContactRadius;
 }
 
 function getBatModelClosestPoint(model, x, y) {
