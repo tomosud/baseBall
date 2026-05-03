@@ -1887,39 +1887,45 @@ elements.overlayButton.addEventListener("click", () => { showPlayingScreen(); })
 (function () {
   let holdTimer = null;
   const btn = elements.playingResetBtn;
-  const overlay = document.getElementById("resetChoiceOverlay");
+  const indicator = document.getElementById("holdIndicator");
+  const indicatorBar = document.getElementById("holdIndicatorBar");
+  const choiceOverlay = document.getElementById("resetChoiceOverlay");
   const btn3 = document.getElementById("resetChoice3");
   const btn9 = document.getElementById("resetChoice9");
 
-  function showResetChoice() {
-    overlay.classList.remove("is-hidden");
+  function showIndicator() {
+    indicatorBar.classList.remove("is-filling");
+    void indicatorBar.offsetWidth; // reflow でアニメーションリセット
+    indicator.classList.remove("is-hidden");
+    indicatorBar.classList.add("is-filling");
   }
 
-  function hideResetChoice() {
-    overlay.classList.add("is-hidden");
+  function hideIndicator() {
+    indicator.classList.add("is-hidden");
+    indicatorBar.classList.remove("is-filling");
   }
 
   function startHold(e) {
     e.preventDefault();
     e.stopPropagation();
-    btn.textContent = "長押し中";
     btn.classList.add("is-holding");
+    showIndicator();
     holdTimer = setTimeout(() => {
-      btn.textContent = "リセット";
+      hideIndicator();
       btn.classList.remove("is-holding");
-      showResetChoice();
+      choiceOverlay.classList.remove("is-hidden");
     }, 3000);
   }
 
   function cancelHold() {
     clearTimeout(holdTimer);
     holdTimer = null;
-    btn.textContent = "リセット";
     btn.classList.remove("is-holding");
+    hideIndicator();
   }
 
-  btn3.addEventListener("click", () => { hideResetChoice(); showPlayingScreen(3); });
-  btn9.addEventListener("click", () => { hideResetChoice(); showPlayingScreen(9); });
+  btn3.addEventListener("click", () => { choiceOverlay.classList.add("is-hidden"); showPlayingScreen(3); });
+  btn9.addEventListener("click", () => { choiceOverlay.classList.add("is-hidden"); showPlayingScreen(9); });
 
   btn.addEventListener("pointerdown", startHold);
   btn.addEventListener("pointerup", cancelHold);
