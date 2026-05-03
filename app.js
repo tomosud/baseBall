@@ -2048,6 +2048,7 @@ function createSafeRunner(baseIndex, bases) {
 function advanceRunnersOnWalk() {
   const rect = elements.playingSurface.getBoundingClientRect();
   const bases = getPlayingBasePositions(rect);
+  const home = getPlayingHomePlate(rect);
   const safeRunners = playingState.runners.filter((runner) => runner.state === "safe");
   const runnerByBase = new Map(safeRunners.map((runner) => [runner.toBaseIndex, runner]));
 
@@ -2063,8 +2064,21 @@ function advanceRunnersOnWalk() {
   }
 
   playingState.runners = playingState.runners.filter((runner) => runner.state !== "out" && runner.state !== "scored");
-  if (!playingState.runners.some((runner) => runner.state === "safe" && runner.toBaseIndex === 0)) {
-    playingState.runners.push(createSafeRunner(0, bases));
+  if (!playingState.runners.some((runner) => (runner.state === "safe" || runner.state === "running") && runner.toBaseIndex === 0)) {
+    const usedColors = new Set(playingState.runners.map((r) => r.colorClass));
+    const colorClass = RUNNER_COLORS.find((c) => !usedColors.has(c)) || RUNNER_COLORS[0];
+    playingState.runners.push({
+      id: Date.now() + Math.random(),
+      x: home.x,
+      y: home.y,
+      fromX: home.x,
+      fromY: home.y,
+      toBaseIndex: 0,
+      progress: 0,
+      state: "running",
+      colorClass,
+      speed: 147,
+    });
   }
   renderPlayingRunners();
 }
@@ -2296,14 +2310,14 @@ function checkPlayingBallHitsBases() {
     el.classList.add("is-tagged");
     setTimeout(() => el.classList.remove("is-tagged"), 800);
 
-    // アウトランナー削除（少し後）
-    const remainingAfterOut = playingState.runners.filter((r) => r !== outRunner);
+    // アウトランナー削除（少し後）— IDで絞り込むことでレースコンディションを防ぐ
+    const outRunnerId = outRunner.id;
     setTimeout(() => {
-      playingState.runners = remainingAfterOut;
+      playingState.runners = playingState.runners.filter((r) => r.id !== outRunnerId);
       renderPlayingRunners();
     }, 500);
 
-    const stillHasRunners = remainingAfterOut.some((r) => r.state === "running");
+    const stillHasRunners = playingState.runners.some((r) => r !== outRunner && r.state === "running");
 
     if (stillHasRunners) {
       // 走者がまだいる → ボールを残してフィールダーが拾い直せる状態に
