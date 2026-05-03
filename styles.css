@@ -824,6 +824,42 @@ button {
   transition: width 3s linear;
 }
 
+.reset-choice-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  background: rgba(0, 0, 0, 0.72);
+  z-index: 20;
+}
+
+.reset-choice-message {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.reset-choice-buttons {
+  display: flex;
+  gap: 16px;
+}
+
+.reset-choice-btn {
+  min-width: 96px;
+  min-height: 52px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: #fff;
+  font-size: 1.1rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
 @media (max-width: 460px) {
   .playing-status-bar {
     gap: 9px;

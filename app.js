@@ -1887,24 +1887,39 @@ elements.overlayButton.addEventListener("click", () => { showPlayingScreen(); })
 (function () {
   let holdTimer = null;
   const btn = elements.playingResetBtn;
+  const overlay = document.getElementById("resetChoiceOverlay");
+  const btn3 = document.getElementById("resetChoice3");
+  const btn9 = document.getElementById("resetChoice9");
+
+  function showResetChoice() {
+    overlay.classList.remove("is-hidden");
+  }
+
+  function hideResetChoice() {
+    overlay.classList.add("is-hidden");
+  }
 
   function startHold(e) {
     e.preventDefault();
     e.stopPropagation();
+    btn.textContent = "長押し中";
     btn.classList.add("is-holding");
     holdTimer = setTimeout(() => {
+      btn.textContent = "リセット";
       btn.classList.remove("is-holding");
-      if (confirm("ゲームをリセットしますか？")) {
-        showPlayingScreen();
-      }
+      showResetChoice();
     }, 3000);
   }
 
   function cancelHold() {
     clearTimeout(holdTimer);
     holdTimer = null;
+    btn.textContent = "リセット";
     btn.classList.remove("is-holding");
   }
+
+  btn3.addEventListener("click", () => { hideResetChoice(); showPlayingScreen(3); });
+  btn9.addEventListener("click", () => { hideResetChoice(); showPlayingScreen(9); });
 
   btn.addEventListener("pointerdown", startHold);
   btn.addEventListener("pointerup", cancelHold);
