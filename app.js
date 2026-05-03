@@ -479,6 +479,14 @@ const physics = {
   batLoadDragDistance: 170,
   // フィールダーがボールをピックアップ後に引っ張れる最大距離（これ以上は弾くしかできない）
   fielderPickupMaxDrag: 72,
+  // スイング角度のアナログばらつき（ラジアン）
+  battingSwingAngleVariation: 0.05,
+  // スイング後の接触猶予時間（秒）
+  battingSwingLingerDuration: 0.03,
+  // 打球カーブ継承時の減衰レート（1/秒）
+  hitBallCurveDecayRate: 1.5,
+  // 打球カーブ適用の最小加速度閾値
+  hitBallCurveThreshold: 0.5,
 };
 
 function updateHeightDebug() {
@@ -861,7 +869,7 @@ function startBatModelSwing(model, batElement, vector) {
   // 速いスイングほど振り抜き角度が大きくなる（アナログ感）+ 小さなランダムばらつき
   const swingSpeedAboveThreshold = Math.max(0, vector.speed - physics.battingSwingThreshold);
   const swingSpeedRatio = clamp(swingSpeedAboveThreshold / physics.battingSwingThreshold, 0, 1);
-  const swingAnalogVariation = (Math.random() - 0.5) * 0.05;
+  const swingAnalogVariation = (Math.random() - 0.5) * physics.battingSwingAngleVariation;
   model.swingEndAngle = -(model.swingStartAngle + swingSpeedRatio * 0.15 + swingAnalogVariation);
   model.swingVelocityX = vector.velocityX;
   model.swingVelocityY = vector.velocityY;
@@ -1620,7 +1628,7 @@ function animateBatting(timeStamp) {
       elements.bat.classList.remove("is-swinging");
       setBatPosition(battingState.batX, battingState.batY, battingState.swingEndAngle);
       // スイング終了後に短い接触猶予ウィンドウを設ける（少し早いスイングでも当たるように）
-      battingState.swingLingerTimer = 0.03;
+      battingState.swingLingerTimer = physics.battingSwingLingerDuration;
     }
   }
 
@@ -1637,9 +1645,9 @@ function animateBatting(timeStamp) {
       battingState.velocityX *= hitDragFactor;
       battingState.velocityY *= hitDragFactor;
       // 引き継いだ投球カーブを打球に適用（時間とともに減衰）
-      if (Math.abs(battingState.curveAccelerationX) > 0.5) {
+      if (Math.abs(battingState.curveAccelerationX) > physics.hitBallCurveThreshold) {
         battingState.velocityX += battingState.curveAccelerationX * deltaSeconds;
-        battingState.curveAccelerationX *= Math.exp(-1.5 * deltaSeconds);
+        battingState.curveAccelerationX *= Math.exp(-physics.hitBallCurveDecayRate * deltaSeconds);
       }
     }
 
@@ -2722,7 +2730,7 @@ function animatePlaying(timeStamp) {
       setPlayingBatPosition(playingState.batX, playingState.batY, playingState.swingEndAngle);
       // スイング終了後に短い接触猶予ウィンドウを設ける（少し早いスイングでも当たるように）
       // 空振り判定はリンガー終了後まで遅延する
-      playingState.swingLingerTimer = 0.03;
+      playingState.swingLingerTimer = physics.battingSwingLingerDuration;
     }
   }
 
@@ -2804,9 +2812,9 @@ function animatePlaying(timeStamp) {
       playingState.velocityX *= drag;
       playingState.velocityY *= drag;
       // 引き継いだ投球カーブを打球に適用（isHit のみ、フィールダー投球には適用しない）
-      if (playingState.isHit && Math.abs(playingState.curveAccelerationX) > 0.5) {
+      if (playingState.isHit && Math.abs(playingState.curveAccelerationX) > physics.hitBallCurveThreshold) {
         playingState.velocityX += playingState.curveAccelerationX * dt;
-        playingState.curveAccelerationX *= Math.exp(-1.5 * dt);
+        playingState.curveAccelerationX *= Math.exp(-physics.hitBallCurveDecayRate * dt);
       }
       playingState.ballX += playingState.velocityX * dt;
       playingState.ballY += playingState.velocityY * dt;
