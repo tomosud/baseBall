@@ -2710,6 +2710,8 @@ function showPlayingScreen(maxInnings = 9) {
   stopPlayingAnimation();
   hideBall();
   hideBattingBall();
+  document.getElementById("resetChoiceOverlay").classList.add("is-hidden");
+  document.getElementById("holdIndicator").classList.add("is-hidden");
   elements.mainScreen.classList.add("is-hidden");
   elements.prototypeScreen.classList.add("is-hidden");
   elements.battingScreen.classList.add("is-hidden");
