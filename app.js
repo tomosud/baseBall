@@ -446,8 +446,9 @@ const physics = {
   battingMaxRawSpeed: 4500,
   battingSpeedScale: 0.18,
   battingContactTopAllowance: 4,
-  battingSwingThreshold: 620,
-  battingSwingDuration: 0.033,
+  battingSwingThreshold: 480,
+  battingSwingDuration: 0.042,
+  batContactRadius: 22,
   battingHitDragPerSecond: 1.1,
   battingStopSpeed: 18,
   battingRestSpeed: 60,
@@ -859,6 +860,19 @@ function distanceToBatModelSegment(model, x, y) {
   const closest = getBatModelClosestPoint(model, x, y);
 
   return Math.hypot(x - closest.x, y - closest.y);
+}
+
+function checkBatModelContact(model, prevX, prevY) {
+  const steps = 4;
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const x = prevX + (model.ballX - prevX) * t;
+    const y = prevY + (model.ballY - prevY) * t;
+    if (distanceToBatModelSegment(model, x, y) <= physics.batContactRadius) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function getBatModelClosestPoint(model, x, y) {
@@ -1549,7 +1563,7 @@ function animateBatting(timeStamp) {
       battingState.isSwinging &&
       !battingState.isHit &&
       !battingState.pitchJudged &&
-      distanceToBatSegment(battingState.ballX, battingState.ballY) <= 16
+      checkBatModelContact(battingState, previousX, previousY)
     ) {
       updateContactableBall(elements.battingBall, false);
       reflectBallFromBat();
@@ -2580,7 +2594,7 @@ function animatePlaying(timeStamp) {
       !playingState.isHit &&
       !playingState.isFielderThrow &&
       !playingState.pitchJudged &&
-      distanceToPlayingBatSegment(playingState.ballX, playingState.ballY) <= 16
+      checkBatModelContact(playingState, previousX, previousY)
     ) {
       updateContactableBall(elements.playingBall, false);
       reflectPlayingBallFromBat();
