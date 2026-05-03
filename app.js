@@ -1896,7 +1896,7 @@ let cancelResetHold = () => {};
 
   function showIndicator() {
     indicatorBar.classList.remove("is-filling");
-    void indicatorBar.offsetWidth; // reflow でアニメーションリセット
+    void indicatorBar.offsetWidth;
     indicator.classList.remove("is-hidden");
     indicatorBar.classList.add("is-filling");
   }
@@ -1906,7 +1906,17 @@ let cancelResetHold = () => {};
     indicatorBar.classList.remove("is-filling");
   }
 
-  function cancelHold() {
+  // 指を離したとき: タイマー中なら取り消すだけ。タイマー発火済みならオーバーレイはそのまま残す
+  function releaseHold() {
+    if (holdTimer === null) return; // タイマー発火済み → 何もしない
+    clearTimeout(holdTimer);
+    holdTimer = null;
+    btn.classList.remove("is-holding");
+    hideIndicator();
+  }
+
+  // 外部（画面遷移など）から全リセットするとき
+  function fullReset() {
     clearTimeout(holdTimer);
     holdTimer = null;
     btn.classList.remove("is-holding");
@@ -1914,29 +1924,30 @@ let cancelResetHold = () => {};
     choiceOverlay.classList.add("is-hidden");
   }
 
-  cancelResetHold = cancelHold;
+  cancelResetHold = fullReset;
 
   function startHold(e) {
-    if (!playingState.isRunning) return; // PLAY BALL 演出中や画面遷移中は無効
+    if (!playingState.isRunning) return;
     e.preventDefault();
     e.stopPropagation();
     btn.classList.add("is-holding");
     showIndicator();
     holdTimer = setTimeout(() => {
-      if (!playingState.isRunning) { cancelHold(); return; } // 念のため再チェック
+      holdTimer = null; // 発火済みのマーク
+      if (!playingState.isRunning) { fullReset(); return; }
       hideIndicator();
       btn.classList.remove("is-holding");
       choiceOverlay.classList.remove("is-hidden");
     }, 3000);
   }
 
-  btn3.addEventListener("click", () => { cancelHold(); showPlayingScreen(3); });
-  btn9.addEventListener("click", () => { cancelHold(); showPlayingScreen(9); });
+  btn3.addEventListener("click", () => { fullReset(); showPlayingScreen(3); });
+  btn9.addEventListener("click", () => { fullReset(); showPlayingScreen(9); });
 
   btn.addEventListener("pointerdown", startHold);
-  btn.addEventListener("pointerup", cancelHold);
-  btn.addEventListener("pointercancel", cancelHold);
-  btn.addEventListener("pointerleave", cancelHold);
+  btn.addEventListener("pointerup", releaseHold);
+  btn.addEventListener("pointercancel", releaseHold);
+  btn.addEventListener("pointerleave", releaseHold);
 })();
 
 elements.pitchSurface.addEventListener("pointerdown", beginPointerControl);
