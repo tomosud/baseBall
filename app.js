@@ -136,6 +136,7 @@ const playingState = {
   runners: [],
   // fielder throw state
   isFielderThrow: false,
+  wasPickedUp: false,
   // swing miss flag (reset per pitch)
   swingMissed: false,
 };
@@ -2502,6 +2503,7 @@ function resetPlayingState() {
   playingState.isBallActive = false;
   playingState.isHit = false;
   playingState.isResting = false;
+  playingState.wasPickedUp = false;
   playingState.pitchJudged = false;
   playingState.motionMode = "flight";
   playingState.currentSpeed = 0;
@@ -2726,8 +2728,9 @@ function animatePlaying(timeStamp) {
       }
     }
 
-    // 休止状態（赤くなる）
-    if ((playingState.isHit || playingState.isFielderThrow) && !playingState.isResting && playingState.currentSpeed <= physics.battingRestSpeed) {
+    // 休止状態（赤くなる）: 1回目ピックアップ後は閾値2倍で拾いやすく
+    const effectiveRestSpeed = physics.battingRestSpeed * (playingState.wasPickedUp ? 2 : 1);
+    if ((playingState.isHit || playingState.isFielderThrow) && !playingState.isResting && playingState.currentSpeed <= effectiveRestSpeed) {
       playingState.isResting = true;
       elements.playingBall.classList.add("is-resting");
     }
@@ -2867,6 +2870,7 @@ function beginPlayingPointer(event) {
       playingState.isPitched = false;
       playingState.pitchJudged = false;
       playingState.swingMissed = false;
+      playingState.wasPickedUp = true;
       elements.playingBall.classList.remove("is-resting");
       hidePlayingBall();
     }
