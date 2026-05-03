@@ -456,8 +456,8 @@ const physics = {
   battingEdgeBounceRestitution: 0.62,
   ballRadius: 7,
   batHitPowerScale: 0.55,
-  batMoveScale: 1 / 3,
-  batMoveYScale: 1 / 3,
+  batMoveScale: 1,
+  batMoveYScale: 1,
   batVerticalRangeRatio: 2,
   batDownRangeScale: 1.5,
   batLength: 59,
@@ -2079,9 +2079,10 @@ function advanceRunnersOnWalk() {
       progress: 0,
       state: "running",
       colorClass,
-      speed: 147,
+      speed: 118,
     });
   }
+  elements.playingRunLabel.textContent = "フォアボール";
   renderPlayingRunners();
 }
 
@@ -2170,10 +2171,11 @@ function spawnRunnerOnHit() {
       progress: 0,
       state: "running",
       colorClass,
-      speed: 147,
+      speed: 118,
     });
   }
 
+  elements.playingRunLabel.textContent = "RUN！RUN！RUN！";
   renderPlayingRunners();
   saveGameToDB();
 }
@@ -2981,7 +2983,7 @@ function restoreRunnersFromSave(savedRunners) {
       progress: 1,
       state: "safe",
       colorClass: r.colorClass,
-      speed: 147,
+      speed: 118,
     };
   });
   renderPlayingRunners();
