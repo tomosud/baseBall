@@ -2945,6 +2945,10 @@ function updatePlayingMode() {
       elements.playingHint.textContent = "Pitcher: swipe up to pitch  /  Batter: swing up";
       elements.playingStrikeZone.classList.remove("is-hidden");
       elements.playingHomeBase.classList.add("is-hidden");
+      // フィールディングモード用のピックアップ状態をクリア（ピッチャーのドラッグ制限を解除）
+      playingState.wasPickedUp = false;
+      playingState.pickupX = 0;
+      playingState.pickupY = 0;
     }
   }
 }
