@@ -475,6 +475,8 @@ const physics = {
   batRestAngle: Math.PI / 8,
   batMaxLoadAngle: Math.PI / 2.4,
   batLoadDragDistance: 170,
+  // フィールダーがボールをピックアップ後に引っ張れる最大距離（これ以上は弾くしかできない）
+  fielderPickupMaxDrag: 72,
 };
 
 function updateHeightDebug() {
@@ -2178,34 +2180,34 @@ function advanceRunnersOnWalk() {
     if (runnerByBase.has(1)) {
       if (runnerByBase.has(2)) {
         // 3塁ランナー → ホームへ走りスコア
-        const runner3 = runnerByBase.get(2);
-        runner3.fromX = runner3.x;
-        runner3.fromY = runner3.y;
-        runner3.toBaseIndex = bases.length; // ホーム
-        runner3.progress = 0;
-        runner3.state = "running";
-        runner3.fromWalk = true;
-        runner3.route = [];
+        const runnerAt3rd = runnerByBase.get(2);
+        runnerAt3rd.fromX = runnerAt3rd.x;
+        runnerAt3rd.fromY = runnerAt3rd.y;
+        runnerAt3rd.toBaseIndex = bases.length; // ホーム
+        runnerAt3rd.progress = 0;
+        runnerAt3rd.state = "running";
+        runnerAt3rd.fromWalk = true;
+        runnerAt3rd.route = [];
       }
       // 2塁ランナー → 3塁へ
-      const runner2 = runnerByBase.get(1);
-      runner2.fromX = runner2.x;
-      runner2.fromY = runner2.y;
-      runner2.toBaseIndex = 2;
-      runner2.progress = 0;
-      runner2.state = "running";
-      runner2.fromWalk = true;
-      runner2.route = [];
+      const runnerAt2nd = runnerByBase.get(1);
+      runnerAt2nd.fromX = runnerAt2nd.x;
+      runnerAt2nd.fromY = runnerAt2nd.y;
+      runnerAt2nd.toBaseIndex = 2;
+      runnerAt2nd.progress = 0;
+      runnerAt2nd.state = "running";
+      runnerAt2nd.fromWalk = true;
+      runnerAt2nd.route = [];
     }
     // 1塁ランナー → 2塁へ
-    const runner1 = runnerByBase.get(0);
-    runner1.fromX = runner1.x;
-    runner1.fromY = runner1.y;
-    runner1.toBaseIndex = 1;
-    runner1.progress = 0;
-    runner1.state = "running";
-    runner1.fromWalk = true;
-    runner1.route = [];
+    const runnerAt1st = runnerByBase.get(0);
+    runnerAt1st.fromX = runnerAt1st.x;
+    runnerAt1st.fromY = runnerAt1st.y;
+    runnerAt1st.toBaseIndex = 1;
+    runnerAt1st.progress = 0;
+    runnerAt1st.state = "running";
+    runnerAt1st.fromWalk = true;
+    runnerAt1st.route = [];
   }
 
   playingState.runners = playingState.runners.filter((runner) => runner.state !== "out" && runner.state !== "scored");
@@ -3017,12 +3019,11 @@ function movePlayingPointer(event) {
     // ボールが指に追従（ピックアップ後は最大ドラッグ距離を制限し弾きのみ可能）
     if (!playingState.isBallActive) {
       if (playingState.wasPickedUp) {
-        const MAX_PICKUP_DRAG = 72;
         const dx = point.x - playingState.pickupX;
         const dy = point.y - playingState.pickupY;
         const dist = Math.hypot(dx, dy);
-        if (dist > MAX_PICKUP_DRAG) {
-          const scale = MAX_PICKUP_DRAG / dist;
+        if (dist > physics.fielderPickupMaxDrag) {
+          const scale = physics.fielderPickupMaxDrag / dist;
           setPlayingBallPosition(playingState.pickupX + dx * scale, playingState.pickupY + dy * scale);
         } else {
           setPlayingBallPosition(point.x, point.y);
