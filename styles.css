@@ -82,7 +82,7 @@ button {
 }
 
 .is-hidden {
-  display: none;
+  display: none !important;
 }
 
 .back-button {
@@ -590,7 +590,7 @@ button {
 }
 
 .playing-overlay.is-hidden {
-  display: none;
+  display: none !important;
 }
 
 .overlay-message {
