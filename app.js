@@ -83,6 +83,7 @@ const playingState = {
   isBallActive: false,
   isHit: false,
   isResting: false,
+  isHomeRun: false,
   pitchJudged: false,
   motionMode: "flight",
   ballX: 0,
@@ -460,6 +461,7 @@ const physics = {
   battingStopSpeed: 18,
   battingRestSpeed: 60,
   battingEdgeBounceRestitution: 0.62,
+  homeRunSpeedThreshold: 200,
   ballRadius: 7,
   batHitPowerScale: 0.55,
   batMoveScale: 1,
@@ -2508,14 +2510,41 @@ function applyPlayingEdgeBounce(rect) {
   }
 
   if (model.ballY <= topWallY && model.velocityY < 0) {
-    model.ballY = topWallY;
-    model.velocityY *= -physics.battingEdgeBounceRestitution;
-    model.velocityX *= physics.battingEdgeBounceRestitution;
+    const isBlueHit = model.isHit && model.currentSpeed >= physics.homeRunSpeedThreshold;
+    if (isBlueHit || playingState.isHomeRun) {
+      // 青い打球は上辺で反射せず突き抜ける（ホームラン）
+      if (isBlueHit && !playingState.isHomeRun) {
+        triggerHomeRun();
+      }
+    } else {
+      model.ballY = topWallY;
+      model.velocityY *= -physics.battingEdgeBounceRestitution;
+      model.velocityX *= physics.battingEdgeBounceRestitution;
+    }
   } else if (model.ballY >= rect.height - margin && model.velocityY > 0) {
     model.ballY = rect.height - margin;
     model.velocityY *= -physics.battingEdgeBounceRestitution;
     model.velocityX *= physics.battingEdgeBounceRestitution;
   }
+}
+
+function triggerHomeRun() {
+  if (playingState.isHomeRun) return;
+  playingState.isHomeRun = true;
+
+  // 走者全員をホームへ走らせる
+  const rect = elements.playingSurface.getBoundingClientRect();
+  const bases = getPlayingBasePositions(rect);
+  for (const runner of playingState.runners) {
+    if (runner.state === "out" || runner.state === "scored") continue;
+    runner.fromX = runner.x;
+    runner.fromY = runner.y;
+    runner.toBaseIndex = bases.length; // ホーム
+    runner.progress = 0;
+    runner.state = "running";
+  }
+  elements.playingRunLabel.textContent = "ホームラン！";
+  updatePlayingCall("ホームラン！", "is-strike");
 }
 
 function startPlayingSwing(vector) {
@@ -2531,6 +2560,7 @@ function resetPlayingState() {
   playingState.isBallActive = false;
   playingState.isHit = false;
   playingState.isResting = false;
+  playingState.isHomeRun = false;
   playingState.wasPickedUp = false;
   playingState.pitchJudged = false;
   playingState.motionMode = "flight";
@@ -2584,12 +2614,14 @@ function launchPlayingBall(vector) {
   playingState.isBallActive = true;
   playingState.isHit = false;
   playingState.isResting = false;
+  playingState.isHomeRun = false;
   playingState.isPitched = true;
   playingState.pitchJudged = false;
   elements.playingBat.classList.remove("is-hit");
   elements.playingBatHitAngle.classList.add("is-hidden");
   elements.playingBatReflectAngle.classList.add("is-hidden");
   elements.playingBall.classList.remove("is-resting");
+  elements.playingBall.classList.remove("is-blue-hit");
   updateContactableBall(elements.playingBall, false);
   showPlayingBall();
   updatePlayingCall("SWING!");
@@ -2719,6 +2751,13 @@ function animatePlaying(timeStamp) {
       updateContactableBall(elements.playingBall, false);
       applyPlayingEdgeBounce(rect);
       setPlayingBallPosition(playingState.ballX, playingState.ballY);
+    }
+
+    // 速度二百以上のヒット球は青く表示
+    if (playingState.isHit && (playingState.currentSpeed >= physics.homeRunSpeedThreshold || playingState.isHomeRun)) {
+      elements.playingBall.classList.add("is-blue-hit");
+    } else {
+      elements.playingBall.classList.remove("is-blue-hit");
     }
 
     // バットとの接触判定
