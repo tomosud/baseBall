@@ -66,6 +66,16 @@ button {
   background: var(--button);
 }
 
+.main-button-group {
+  display: flex;
+  gap: 10px;
+}
+
+.main-button-group .main-button {
+  min-width: 0;
+  flex: 1;
+}
+
 .prototype-screen {
   position: relative;
   background: var(--bg-prototype);

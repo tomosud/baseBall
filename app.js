@@ -182,6 +182,7 @@ const elements = {
   bat: document.getElementById("bat"),
   battingHint: document.getElementById("battingHint"),
   openPlayingPrototype: document.getElementById("openPlayingPrototype"),
+  openPlayingPrototype3: document.getElementById("openPlayingPrototype3"),
   playingScreen: document.getElementById("playingScreen"),
   playingSurface: document.getElementById("playingSurface"),
   playingStrikeZone: document.getElementById("playingStrikeZone"),
@@ -240,6 +241,7 @@ const gameState = {
   score: [0, 0],       // [青軍, 赤軍]
   inningScores: Array.from({ length: 9 }, () => [0, 0]),
   phase: "pregame",    // "pregame"|"playing"|"change"|"gameset"
+  maxInnings: 9,
 };
 
 function resetGameState() {
@@ -373,8 +375,7 @@ function gameDoChange() {
     } else {
       gameState.inning++;
       gameState.isTop = true;
-      // 9回裏終了
-      if (gameState.inning > 9) {
+      if (gameState.inning > gameState.maxInnings) {
         gameDoGameSet();
         return;
       }
@@ -446,9 +447,9 @@ const physics = {
   battingMaxRawSpeed: 4500,
   battingSpeedScale: 0.18,
   battingContactTopAllowance: 4,
-  battingSwingThreshold: 480,
-  battingSwingDuration: 0.042,
-  batContactRadius: 22,
+  battingSwingThreshold: 350,
+  battingSwingDuration: 0.055,
+  batContactRadius: 28,
   battingHitDragPerSecond: 1.1,
   battingStopSpeed: 18,
   battingRestSpeed: 60,
@@ -457,7 +458,7 @@ const physics = {
   batHitPowerScale: 0.55,
   batMoveScale: 1 / 3,
   batMoveYScale: 1 / 3,
-  batVerticalRangeRatio: 1,
+  batVerticalRangeRatio: 2,
   batDownRangeScale: 1.5,
   batLength: 59,
   batRestAngle: Math.PI / 8,
@@ -824,7 +825,7 @@ function placeBatModelOnSwingLine(model, surfaceElement, getZone, setPosition, p
       ? model.batBaseY
       : model.batBaseY + (pointerY - model.batPointerStartY) * physics.batMoveYScale;
   const zoneCenterY = (zone.top + zone.bottom) * 0.5;
-  const clampedY = clamp(y, zoneCenterY, model.batBaseY + verticalHalfRange * physics.batDownRangeScale);
+  const clampedY = clamp(y, model.batBaseY - verticalHalfRange, model.batBaseY + verticalHalfRange * physics.batDownRangeScale);
   const loadRatio =
     pointerY === null ? 0 : clamp((pointerY - model.batPointerStartY) / physics.batLoadDragDistance, 0, 1);
   const readyAngle =
@@ -1876,7 +1877,8 @@ function endBattingPointer(event) {
 
 elements.openPitchPrototype.addEventListener("click", showPrototypeScreen);
 elements.openBattingPrototype.addEventListener("click", showBattingScreen);
-elements.openPlayingPrototype.addEventListener("click", showPlayingScreen);
+elements.openPlayingPrototype.addEventListener("click", () => showPlayingScreen(9));
+elements.openPlayingPrototype3.addEventListener("click", () => showPlayingScreen(3));
 elements.backButton.addEventListener("click", showMainScreen);
 elements.battingBackButton.addEventListener("click", showMainScreen);
 elements.overlayButton.addEventListener("click", () => { showPlayingScreen(); });
@@ -2048,6 +2050,7 @@ function createSafeRunner(baseIndex, bases) {
 function advanceRunnersOnWalk() {
   const rect = elements.playingSurface.getBoundingClientRect();
   const bases = getPlayingBasePositions(rect);
+  const home = getPlayingHomePlate(rect);
   const safeRunners = playingState.runners.filter((runner) => runner.state === "safe");
   const runnerByBase = new Map(safeRunners.map((runner) => [runner.toBaseIndex, runner]));
 
@@ -2063,8 +2066,21 @@ function advanceRunnersOnWalk() {
   }
 
   playingState.runners = playingState.runners.filter((runner) => runner.state !== "out" && runner.state !== "scored");
-  if (!playingState.runners.some((runner) => runner.state === "safe" && runner.toBaseIndex === 0)) {
-    playingState.runners.push(createSafeRunner(0, bases));
+  if (!playingState.runners.some((runner) => (runner.state === "safe" || runner.state === "running") && runner.toBaseIndex === 0)) {
+    const usedColors = new Set(playingState.runners.map((r) => r.colorClass));
+    const colorClass = RUNNER_COLORS.find((c) => !usedColors.has(c)) || RUNNER_COLORS[0];
+    playingState.runners.push({
+      id: Date.now() + Math.random(),
+      x: home.x,
+      y: home.y,
+      fromX: home.x,
+      fromY: home.y,
+      toBaseIndex: 0,
+      progress: 0,
+      state: "running",
+      colorClass,
+      speed: 147,
+    });
   }
   renderPlayingRunners();
 }
@@ -2296,14 +2312,14 @@ function checkPlayingBallHitsBases() {
     el.classList.add("is-tagged");
     setTimeout(() => el.classList.remove("is-tagged"), 800);
 
-    // アウトランナー削除（少し後）
-    const remainingAfterOut = playingState.runners.filter((r) => r !== outRunner);
+    // アウトランナー削除（少し後）— IDで絞り込むことでレースコンディションを防ぐ
+    const outRunnerId = outRunner.id;
     setTimeout(() => {
-      playingState.runners = remainingAfterOut;
+      playingState.runners = playingState.runners.filter((r) => r.id !== outRunnerId);
       renderPlayingRunners();
     }, 500);
 
-    const stillHasRunners = remainingAfterOut.some((r) => r.state === "running");
+    const stillHasRunners = playingState.runners.some((r) => r !== outRunner && r.state === "running");
 
     if (stillHasRunners) {
       // 走者がまだいる → ボールを残してフィールダーが拾い直せる状態に
@@ -2665,7 +2681,7 @@ function animatePlaying(timeStamp) {
   playingState.animationFrameId = window.requestAnimationFrame(animatePlaying);
 }
 
-function showPlayingScreen() {
+function showPlayingScreen(maxInnings = 9) {
   stopPitchAnimation();
   stopBattingAnimation();
   stopPlayingAnimation();
@@ -2677,6 +2693,7 @@ function showPlayingScreen() {
   elements.playingScreen.classList.remove("is-hidden");
   clearSaveData();
   resetGameState();
+  gameState.maxInnings = maxInnings;
   resetPlayingState();
   updatePlayingBasesDOM();
   gameState.phase = "playing";
@@ -2905,6 +2922,7 @@ function saveGameToDB() {
     strikes: gameState.strikes,
     score: [...gameState.score],
     inningScores: gameState.inningScores.map((r) => [...r]),
+    maxInnings: gameState.maxInnings,
     runners: savedRunners,
     savedAt: Date.now(),
   };
@@ -2933,7 +2951,8 @@ function loadGameFromDB() {
 }
 
 function applyLoadedGame(data) {
-  gameState.inning = clamp(Number(data.inning) || 1, 1, 9);
+  gameState.maxInnings = [3, 9].includes(Number(data.maxInnings)) ? Number(data.maxInnings) : 9;
+  gameState.inning = clamp(Number(data.inning) || 1, 1, gameState.maxInnings);
   gameState.isTop = Boolean(data.isTop);
   gameState.outs = clamp(Number(data.outs) || 0, 0, 2);
   gameState.balls = clamp(Number(data.balls) || 0, 0, 3);
