@@ -461,6 +461,7 @@ const physics = {
   battingStopSpeed: 18,
   battingRestSpeed: 60,
   battingEdgeBounceRestitution: 0.62,
+  homeRunSpeedThreshold: 200,
   ballRadius: 7,
   batHitPowerScale: 0.55,
   batMoveScale: 1,
@@ -2509,7 +2510,7 @@ function applyPlayingEdgeBounce(rect) {
   }
 
   if (model.ballY <= topWallY && model.velocityY < 0) {
-    const isBlueHit = model.isHit && model.currentSpeed >= 200;
+    const isBlueHit = model.isHit && model.currentSpeed >= physics.homeRunSpeedThreshold;
     if (isBlueHit || playingState.isHomeRun) {
       // 青い打球は上辺で反射せず突き抜ける（ホームラン）
       if (isBlueHit && !playingState.isHomeRun) {
@@ -2753,7 +2754,7 @@ function animatePlaying(timeStamp) {
     }
 
     // 速度二百以上のヒット球は青く表示
-    if (playingState.isHit && (playingState.currentSpeed >= 200 || playingState.isHomeRun)) {
+    if (playingState.isHit && (playingState.currentSpeed >= physics.homeRunSpeedThreshold || playingState.isHomeRun)) {
       elements.playingBall.classList.add("is-blue-hit");
     } else {
       elements.playingBall.classList.remove("is-blue-hit");
