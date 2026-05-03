@@ -941,6 +941,9 @@ function reflectBallFromBatModel(model, options) {
   }
 
   const reflectedX = model.velocityX - 2 * incomingDot * normalX;
+  const reflectedY = model.velocityY - 2 * incomingDot * normalY;
+  const reflectedMag = Math.hypot(reflectedX, reflectedY);
+
   const swingDirection = normalizeVector(model.swingVelocityX, model.swingVelocityY, 0, -1);
   const hitRatio = getBatModelHitRatio(model, model.ballX, model.ballY);
   const radius = physics.batLength * hitRatio;
@@ -954,9 +957,26 @@ function reflectBallFromBatModel(model, options) {
   const impulse = localBatSpeed * physics.batHitPowerScale;
   model.swingPower = impulse;
   const contactDirection = normalizeVector(contactVelocityX, contactVelocityY, swingDirection.x, swingDirection.y);
-  const launchSide = normalizeVector(reflectedX * 0.2 + contactDirection.x * impulse, 0, 0, 0).x;
+
+  // A: バット面上の当たり位置 → 仰角に影響（上端 = フライ、下端 = ゴロ）
+  const closest = getBatModelClosestPoint(model, model.ballX, model.ballY);
+  const perpX = -Math.sin(model.batAngle);
+  const perpY = Math.cos(model.batAngle);
+  const impactOffset = ((model.ballX - closest.x) * perpX + (model.ballY - closest.y) * perpY) / physics.batContactRadius;
+
+  // B: バット法線反射のY成分を打球方向に加味
+  const normalReflectY = reflectedMag > 0 ? reflectedY / reflectedMag : 0;
+
+  // C: スイング速度が速いほど低い弾道（ライナー）
+  const speedFactor = clamp(impulse / 350, 0, 1);
+
+  const launchSide = normalizeVector(reflectedX * 0.4 + contactDirection.x * impulse, 0, 0, 0).x;
   const launchSpeed = clamp(220 + impulse + model.currentSpeed * 0.08, 260, 980);
-  const launchDirection = normalizeVector(launchSide * 0.72, contactDirection.y - 0.35, 0, -1);
+  const launchRawY = (contactDirection.y - 0.35)   // ベース（スイング方向）
+                   + normalReflectY * 0.25          // B: 法線反射Y
+                   + impactOffset * 0.5             // A: 当たり位置（上端 = より高く）
+                   + speedFactor * 0.25;            // C: 速いスイング = 低め
+  const launchDirection = normalizeVector(launchSide * 0.72, launchRawY, 0, -1);
 
   model.velocityX = launchDirection.x * launchSpeed;
   model.velocityY = launchDirection.y * launchSpeed;
