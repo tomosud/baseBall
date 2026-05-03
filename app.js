@@ -182,6 +182,7 @@ const elements = {
   bat: document.getElementById("bat"),
   battingHint: document.getElementById("battingHint"),
   openPlayingPrototype: document.getElementById("openPlayingPrototype"),
+  openPlayingPrototype3: document.getElementById("openPlayingPrototype3"),
   playingScreen: document.getElementById("playingScreen"),
   playingSurface: document.getElementById("playingSurface"),
   playingStrikeZone: document.getElementById("playingStrikeZone"),
@@ -240,6 +241,7 @@ const gameState = {
   score: [0, 0],       // [青軍, 赤軍]
   inningScores: Array.from({ length: 9 }, () => [0, 0]),
   phase: "pregame",    // "pregame"|"playing"|"change"|"gameset"
+  maxInnings: 9,
 };
 
 function resetGameState() {
@@ -373,8 +375,7 @@ function gameDoChange() {
     } else {
       gameState.inning++;
       gameState.isTop = true;
-      // 9回裏終了
-      if (gameState.inning > 9) {
+      if (gameState.inning > gameState.maxInnings) {
         gameDoGameSet();
         return;
       }
@@ -1876,7 +1877,8 @@ function endBattingPointer(event) {
 
 elements.openPitchPrototype.addEventListener("click", showPrototypeScreen);
 elements.openBattingPrototype.addEventListener("click", showBattingScreen);
-elements.openPlayingPrototype.addEventListener("click", showPlayingScreen);
+elements.openPlayingPrototype.addEventListener("click", () => showPlayingScreen(9));
+elements.openPlayingPrototype3.addEventListener("click", () => showPlayingScreen(3));
 elements.backButton.addEventListener("click", showMainScreen);
 elements.battingBackButton.addEventListener("click", showMainScreen);
 elements.overlayButton.addEventListener("click", () => { showPlayingScreen(); });
@@ -2679,7 +2681,7 @@ function animatePlaying(timeStamp) {
   playingState.animationFrameId = window.requestAnimationFrame(animatePlaying);
 }
 
-function showPlayingScreen() {
+function showPlayingScreen(maxInnings = 9) {
   stopPitchAnimation();
   stopBattingAnimation();
   stopPlayingAnimation();
@@ -2691,6 +2693,7 @@ function showPlayingScreen() {
   elements.playingScreen.classList.remove("is-hidden");
   clearSaveData();
   resetGameState();
+  gameState.maxInnings = maxInnings;
   resetPlayingState();
   updatePlayingBasesDOM();
   gameState.phase = "playing";
@@ -2919,6 +2922,7 @@ function saveGameToDB() {
     strikes: gameState.strikes,
     score: [...gameState.score],
     inningScores: gameState.inningScores.map((r) => [...r]),
+    maxInnings: gameState.maxInnings,
     runners: savedRunners,
     savedAt: Date.now(),
   };
@@ -2947,7 +2951,8 @@ function loadGameFromDB() {
 }
 
 function applyLoadedGame(data) {
-  gameState.inning = clamp(Number(data.inning) || 1, 1, 9);
+  gameState.maxInnings = [3, 9].includes(Number(data.maxInnings)) ? Number(data.maxInnings) : 9;
+  gameState.inning = clamp(Number(data.inning) || 1, 1, gameState.maxInnings);
   gameState.isTop = Boolean(data.isTop);
   gameState.outs = clamp(Number(data.outs) || 0, 0, 2);
   gameState.balls = clamp(Number(data.balls) || 0, 0, 3);
