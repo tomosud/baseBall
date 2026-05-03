@@ -50,6 +50,19 @@
           <div class="overlay-sub" id="overlaySub"></div>
           <button type="button" class="overlay-button is-hidden" id="overlayButton">もう一度</button>
         </div>
+        <!-- 長押し中インジケーター -->
+        <div class="hold-indicator is-hidden" id="holdIndicator">
+          <span class="hold-indicator-text">長押し中</span>
+          <div class="hold-indicator-bar-track"><div class="hold-indicator-bar" id="holdIndicatorBar"></div></div>
+        </div>
+        <!-- リセット選択オーバーレイ -->
+        <div class="reset-choice-overlay is-hidden" id="resetChoiceOverlay">
+          <p class="reset-choice-message">何回でリセット？</p>
+          <div class="reset-choice-buttons">
+            <button type="button" class="reset-choice-btn" id="resetChoice3">3回</button>
+            <button type="button" class="reset-choice-btn" id="resetChoice9">9回</button>
+          </div>
+        </div>
         <!-- エリア着色 -->
         <div class="playing-area-tint is-top-area" id="playingAreaTop"></div>
         <div class="playing-area-tint is-bottom-area" id="playingAreaBottom"></div>

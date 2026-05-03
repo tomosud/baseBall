@@ -456,8 +456,8 @@ const physics = {
   battingEdgeBounceRestitution: 0.62,
   ballRadius: 7,
   batHitPowerScale: 0.55,
-  batMoveScale: 1 / 3,
-  batMoveYScale: 1 / 3,
+  batMoveScale: 1,
+  batMoveYScale: 1,
   batVerticalRangeRatio: 2,
   batDownRangeScale: 1.5,
   batLength: 59,
@@ -1887,16 +1887,33 @@ elements.overlayButton.addEventListener("click", () => { showPlayingScreen(); })
 (function () {
   let holdTimer = null;
   const btn = elements.playingResetBtn;
+  const indicator = document.getElementById("holdIndicator");
+  const indicatorBar = document.getElementById("holdIndicatorBar");
+  const choiceOverlay = document.getElementById("resetChoiceOverlay");
+  const btn3 = document.getElementById("resetChoice3");
+  const btn9 = document.getElementById("resetChoice9");
+
+  function showIndicator() {
+    indicatorBar.classList.remove("is-filling");
+    void indicatorBar.offsetWidth; // reflow でアニメーションリセット
+    indicator.classList.remove("is-hidden");
+    indicatorBar.classList.add("is-filling");
+  }
+
+  function hideIndicator() {
+    indicator.classList.add("is-hidden");
+    indicatorBar.classList.remove("is-filling");
+  }
 
   function startHold(e) {
     e.preventDefault();
     e.stopPropagation();
     btn.classList.add("is-holding");
+    showIndicator();
     holdTimer = setTimeout(() => {
+      hideIndicator();
       btn.classList.remove("is-holding");
-      if (confirm("ゲームをリセットしますか？")) {
-        showPlayingScreen();
-      }
+      choiceOverlay.classList.remove("is-hidden");
     }, 3000);
   }
 
@@ -1904,7 +1921,11 @@ elements.overlayButton.addEventListener("click", () => { showPlayingScreen(); })
     clearTimeout(holdTimer);
     holdTimer = null;
     btn.classList.remove("is-holding");
+    hideIndicator();
   }
+
+  btn3.addEventListener("click", () => { choiceOverlay.classList.add("is-hidden"); showPlayingScreen(3); });
+  btn9.addEventListener("click", () => { choiceOverlay.classList.add("is-hidden"); showPlayingScreen(9); });
 
   btn.addEventListener("pointerdown", startHold);
   btn.addEventListener("pointerup", cancelHold);
@@ -2079,9 +2100,10 @@ function advanceRunnersOnWalk() {
       progress: 0,
       state: "running",
       colorClass,
-      speed: 147,
+      speed: 118,
     });
   }
+  elements.playingRunLabel.textContent = "フォアボール";
   renderPlayingRunners();
 }
 
@@ -2170,10 +2192,11 @@ function spawnRunnerOnHit() {
       progress: 0,
       state: "running",
       colorClass,
-      speed: 147,
+      speed: 118,
     });
   }
 
+  elements.playingRunLabel.textContent = "RUN！RUN！RUN！";
   renderPlayingRunners();
   saveGameToDB();
 }
@@ -2981,7 +3004,7 @@ function restoreRunnersFromSave(savedRunners) {
       progress: 1,
       state: "safe",
       colorClass: r.colorClass,
-      speed: 147,
+      speed: 118,
     };
   });
   renderPlayingRunners();
