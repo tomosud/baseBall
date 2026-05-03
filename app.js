@@ -372,6 +372,11 @@ function gameDoChange() {
     // 表→裏 or 裏→次回
     if (gameState.isTop) {
       gameState.isTop = false;
+      // 最終回裏: 負けてる側がピッチャー（赤軍が攻撃）→ 赤軍がすでにリードならゲームセット
+      if (gameState.inning === gameState.maxInnings && gameState.score[1] > gameState.score[0]) {
+        gameDoGameSet();
+        return;
+      }
     } else {
       gameState.inning++;
       gameState.isTop = true;
@@ -2118,6 +2123,7 @@ function advanceRunnersOnWalk() {
       state: "running",
       colorClass,
       speed: 118,
+      fromWalk: true,
     });
   }
   elements.playingRunLabel.textContent = "フォアボール";
@@ -2339,8 +2345,8 @@ function checkPlayingBallHitsBases() {
     const dist = Math.hypot(playingState.ballX - pos.x, playingState.ballY - pos.y);
     if (dist > 26) continue;
 
-    // この塁に向かって走っているランナーを探す
-    const runnerIndex = playingState.runners.findIndex((r) => r.state === "running" && r.toBaseIndex === idx);
+    // この塁に向かって走っているランナーを探す（フォアボール走者はアウト対象外）
+    const runnerIndex = playingState.runners.findIndex((r) => r.state === "running" && r.toBaseIndex === idx && !r.fromWalk);
     if (runnerIndex === -1) continue;
 
     // アウト!
