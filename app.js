@@ -1917,11 +1917,13 @@ let cancelResetHold = () => {};
   cancelResetHold = cancelHold;
 
   function startHold(e) {
+    if (!playingState.isRunning) return; // PLAY BALL 演出中や画面遷移中は無効
     e.preventDefault();
     e.stopPropagation();
     btn.classList.add("is-holding");
     showIndicator();
     holdTimer = setTimeout(() => {
+      if (!playingState.isRunning) { cancelHold(); return; } // 念のため再チェック
       hideIndicator();
       btn.classList.remove("is-holding");
       choiceOverlay.classList.remove("is-hidden");
@@ -2729,9 +2731,11 @@ function showPlayingScreen(maxInnings = 9) {
   // PLAY BALL オーバーレイを 1.2s 表示してから試合開始
   showOverlay("PLAY BALL!", "", false);
   playingState.isRunning = false;
+  elements.playingResetBtn.style.pointerEvents = "none";
   setTimeout(() => {
     hideOverlay();
     playingState.isRunning = true;
+    elements.playingResetBtn.style.pointerEvents = "";
     playingState.animationFrameId = window.requestAnimationFrame(animatePlaying);
   }, 1200);
 }
@@ -3028,9 +3032,11 @@ loadGameFromDB().then((saved) => {
     restoreRunnersFromSave(saved.runners || []);
     showOverlay("PLAY BALL!", "", false);
     playingState.isRunning = false;
+    elements.playingResetBtn.style.pointerEvents = "none";
     setTimeout(() => {
       hideOverlay();
       playingState.isRunning = true;
+      elements.playingResetBtn.style.pointerEvents = "";
       playingState.animationFrameId = window.requestAnimationFrame(animatePlaying);
     }, 1200);
   } else {
