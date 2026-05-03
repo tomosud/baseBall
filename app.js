@@ -447,9 +447,9 @@ const physics = {
   battingMaxRawSpeed: 4500,
   battingSpeedScale: 0.18,
   battingContactTopAllowance: 4,
-  battingSwingThreshold: 480,
-  battingSwingDuration: 0.042,
-  batContactRadius: 22,
+  battingSwingThreshold: 350,
+  battingSwingDuration: 0.055,
+  batContactRadius: 28,
   battingHitDragPerSecond: 1.1,
   battingStopSpeed: 18,
   battingRestSpeed: 60,
@@ -458,7 +458,7 @@ const physics = {
   batHitPowerScale: 0.55,
   batMoveScale: 1 / 3,
   batMoveYScale: 1 / 3,
-  batVerticalRangeRatio: 1,
+  batVerticalRangeRatio: 2,
   batDownRangeScale: 1.5,
   batLength: 59,
   batRestAngle: Math.PI / 8,
@@ -825,7 +825,7 @@ function placeBatModelOnSwingLine(model, surfaceElement, getZone, setPosition, p
       ? model.batBaseY
       : model.batBaseY + (pointerY - model.batPointerStartY) * physics.batMoveYScale;
   const zoneCenterY = (zone.top + zone.bottom) * 0.5;
-  const clampedY = clamp(y, zoneCenterY, model.batBaseY + verticalHalfRange * physics.batDownRangeScale);
+  const clampedY = clamp(y, model.batBaseY - verticalHalfRange, model.batBaseY + verticalHalfRange * physics.batDownRangeScale);
   const loadRatio =
     pointerY === null ? 0 : clamp((pointerY - model.batPointerStartY) / physics.batLoadDragDistance, 0, 1);
   const readyAngle =
