@@ -138,6 +138,8 @@ const playingState = {
   // fielder throw state
   isFielderThrow: false,
   wasPickedUp: false,
+  pickupX: 0,
+  pickupY: 0,
   // swing miss flag (reset per pitch)
   swingMissed: false,
 };
@@ -210,6 +212,7 @@ const elements = {
   playingRunner0: document.getElementById("playingRunner0"),
   playingRunner1: document.getElementById("playingRunner1"),
   playingRunner2: document.getElementById("playingRunner2"),
+  playingRunner3: document.getElementById("playingRunner3"),
   // game UI
   playingStatusBar: document.getElementById("playingStatusBar"),
   statusScoreBlue: document.getElementById("statusScoreBlue"),
@@ -472,6 +475,8 @@ const physics = {
   batRestAngle: Math.PI / 8,
   batMaxLoadAngle: Math.PI / 2.4,
   batLoadDragDistance: 170,
+  // フィールダーがボールをピックアップ後に引っ張れる最大距離（これ以上は弾くしかできない）
+  fielderPickupMaxDrag: 72,
 };
 
 function updateHeightDebug() {
@@ -2159,6 +2164,7 @@ function createSafeRunner(baseIndex, bases) {
     state: "safe",
     colorClass: getUnusedRunnerColor(),
     speed: 147,
+    route: [],
   };
 }
 
@@ -2169,15 +2175,39 @@ function advanceRunnersOnWalk() {
   const safeRunners = playingState.runners.filter((runner) => runner.state === "safe");
   const runnerByBase = new Map(safeRunners.map((runner) => [runner.toBaseIndex, runner]));
 
+  // 強制進塁: 各塁のランナーをアニメーションで次の塁へ走らせる
   if (runnerByBase.has(0)) {
     if (runnerByBase.has(1)) {
       if (runnerByBase.has(2)) {
-        addRunForBattingTeam();
-        playingState.runners = playingState.runners.filter((runner) => runner !== runnerByBase.get(2));
+        // 3塁ランナー → ホームへ走りスコア
+        const runnerAt3rd = runnerByBase.get(2);
+        runnerAt3rd.fromX = runnerAt3rd.x;
+        runnerAt3rd.fromY = runnerAt3rd.y;
+        runnerAt3rd.toBaseIndex = bases.length; // ホーム
+        runnerAt3rd.progress = 0;
+        runnerAt3rd.state = "running";
+        runnerAt3rd.fromWalk = true;
+        runnerAt3rd.route = [];
       }
-      placeRunnerOnBase(runnerByBase.get(1), 2, bases);
+      // 2塁ランナー → 3塁へ
+      const runnerAt2nd = runnerByBase.get(1);
+      runnerAt2nd.fromX = runnerAt2nd.x;
+      runnerAt2nd.fromY = runnerAt2nd.y;
+      runnerAt2nd.toBaseIndex = 2;
+      runnerAt2nd.progress = 0;
+      runnerAt2nd.state = "running";
+      runnerAt2nd.fromWalk = true;
+      runnerAt2nd.route = [];
     }
-    placeRunnerOnBase(runnerByBase.get(0), 1, bases);
+    // 1塁ランナー → 2塁へ
+    const runnerAt1st = runnerByBase.get(0);
+    runnerAt1st.fromX = runnerAt1st.x;
+    runnerAt1st.fromY = runnerAt1st.y;
+    runnerAt1st.toBaseIndex = 1;
+    runnerAt1st.progress = 0;
+    runnerAt1st.state = "running";
+    runnerAt1st.fromWalk = true;
+    runnerAt1st.route = [];
   }
 
   playingState.runners = playingState.runners.filter((runner) => runner.state !== "out" && runner.state !== "scored");
@@ -2196,6 +2226,7 @@ function advanceRunnersOnWalk() {
       colorClass,
       speed: 118,
       fromWalk: true,
+      route: [],
     });
   }
   elements.playingRunLabel.textContent = "フォアボール";
@@ -2254,6 +2285,7 @@ function spawnRunnerOnHit() {
       runner.fromY = fromPos.y;
       runner.x = runner.fromX;
       runner.y = runner.fromY;
+      runner.route = [];
       if (nextBase > bases.length) {
         // すでにホーム走中などは無視
         runner.state = "scored";
@@ -2273,23 +2305,22 @@ function spawnRunnerOnHit() {
   // スコアしたランナーを削除
   playingState.runners = playingState.runners.filter((r) => r.state !== "scored");
 
-  // 新しいランナーを追加（最大3人）
-  if (playingState.runners.length < 3) {
-    const usedColors = new Set(playingState.runners.map((r) => r.colorClass));
-    const colorClass = RUNNER_COLORS.find((c) => !usedColors.has(c)) || RUNNER_COLORS[0];
-    playingState.runners.push({
-      id: Date.now(),
-      x: home.x,
-      y: home.y,
-      fromX: home.x,
-      fromY: home.y,
-      toBaseIndex: 0,
-      progress: 0,
-      state: "running",
-      colorClass,
-      speed: 118,
-    });
-  }
+  // バッターランナーを常に追加（走者が満塁でも打者は1塁へ走る）
+  const usedColors = new Set(playingState.runners.map((r) => r.colorClass));
+  const colorClass = RUNNER_COLORS.find((c) => !usedColors.has(c)) || RUNNER_COLORS[0];
+  playingState.runners.push({
+    id: Date.now(),
+    x: home.x,
+    y: home.y,
+    fromX: home.x,
+    fromY: home.y,
+    toBaseIndex: 0,
+    progress: 0,
+    state: "running",
+    colorClass,
+    speed: 118,
+    route: [],
+  });
 
   elements.playingRunLabel.textContent = "RUN！RUN！RUN！";
   renderPlayingRunners();
@@ -2311,15 +2342,28 @@ function updatePlayingRunners(dt) {
     const dy = target.y - runner.fromY;
     const dist = Math.hypot(dx, dy);
 
-    if (dist < 0.001) {
-      if (runner.toBaseIndex >= bases.length) {
+    // ルートの次の塁へ進む共通処理
+    const advanceToNextInRoute = () => {
+      runner.x = target.x;
+      runner.y = target.y;
+      if (runner.route && runner.route.length > 0) {
+        // まだ次の塁がある → 続けて走る
+        const nextIndex = runner.route.shift();
+        runner.fromX = target.x;
+        runner.fromY = target.y;
+        runner.toBaseIndex = nextIndex;
+        runner.progress = 0;
+        // state は "running" のまま
+      } else if (runner.toBaseIndex >= bases.length) {
         runner.state = "scored";
         showPlayingScore();
       } else {
         runner.state = "safe";
       }
-      runner.x = target.x;
-      runner.y = target.y;
+    };
+
+    if (dist < 0.001) {
+      advanceToNextInRoute();
       continue;
     }
 
@@ -2327,14 +2371,7 @@ function updatePlayingRunners(dt) {
 
     if (runner.progress >= 1) {
       runner.progress = 1;
-      runner.x = target.x;
-      runner.y = target.y;
-      if (runner.toBaseIndex >= bases.length) {
-        runner.state = "scored";
-        showPlayingScore();
-      } else {
-        runner.state = "safe";
-      }
+      advanceToNextInRoute();
     } else {
       runner.x = runner.fromX + dx * runner.progress;
       runner.y = runner.fromY + dy * runner.progress;
@@ -2350,7 +2387,7 @@ function updatePlayingRunners(dt) {
 function renderPlayingRunners() {
   const rect = elements.playingSurface.getBoundingClientRect();
   const bases = getPlayingBasePositions(rect);
-  const runnerEls = [elements.playingRunner0, elements.playingRunner1, elements.playingRunner2];
+  const runnerEls = [elements.playingRunner0, elements.playingRunner1, elements.playingRunner2, elements.playingRunner3];
 
   // 全て非表示・色クリア
   runnerEls.forEach((el) => {
@@ -2532,15 +2569,17 @@ function triggerHomeRun() {
   if (playingState.isHomeRun) return;
   playingState.isHomeRun = true;
 
-  // 走者全員をホームへ走らせる
+  // 走者全員に残りの塁を順番に回らせてホームインさせる
   const rect = elements.playingSurface.getBoundingClientRect();
   const bases = getPlayingBasePositions(rect);
   for (const runner of playingState.runners) {
     if (runner.state === "out" || runner.state === "scored") continue;
-    runner.fromX = runner.x;
-    runner.fromY = runner.y;
-    runner.toBaseIndex = bases.length; // ホーム
-    runner.progress = 0;
+    // 現在向かっている塁の次から home までのルートを作る
+    const route = [];
+    for (let i = runner.toBaseIndex + 1; i <= bases.length; i++) {
+      route.push(i);
+    }
+    runner.route = route;
     runner.state = "running";
   }
   elements.playingRunLabel.textContent = "ホームラン！";
@@ -2562,6 +2601,8 @@ function resetPlayingState() {
   playingState.isResting = false;
   playingState.isHomeRun = false;
   playingState.wasPickedUp = false;
+  playingState.pickupX = 0;
+  playingState.pickupY = 0;
   playingState.pitchJudged = false;
   playingState.motionMode = "flight";
   playingState.currentSpeed = 0;
@@ -2938,6 +2979,8 @@ function beginPlayingPointer(event) {
       playingState.pitchJudged = false;
       playingState.swingMissed = false;
       playingState.wasPickedUp = true;
+      playingState.pickupX = point.x;
+      playingState.pickupY = point.y;
       elements.playingBall.classList.remove("is-resting");
       hidePlayingBall();
     }
@@ -2973,9 +3016,21 @@ function beginPlayingPointer(event) {
 function movePlayingPointer(event) {
   const point = getPlayingSurfacePoint(event);
   if (event.pointerId === playingState.pitcherPointerId) {
-    // ボールが指に追従
+    // ボールが指に追従（ピックアップ後は最大ドラッグ距離を制限し弾きのみ可能）
     if (!playingState.isBallActive) {
-      setPlayingBallPosition(point.x, point.y);
+      if (playingState.wasPickedUp) {
+        const dx = point.x - playingState.pickupX;
+        const dy = point.y - playingState.pickupY;
+        const dist = Math.hypot(dx, dy);
+        if (dist > physics.fielderPickupMaxDrag) {
+          const scale = physics.fielderPickupMaxDrag / dist;
+          setPlayingBallPosition(playingState.pickupX + dx * scale, playingState.pickupY + dy * scale);
+        } else {
+          setPlayingBallPosition(point.x, point.y);
+        }
+      } else {
+        setPlayingBallPosition(point.x, point.y);
+      }
     }
     pushPlayingPitcherTrail(point.x, point.y, event.timeStamp);
   } else if (event.pointerId === playingState.batterPointerId) {
@@ -3143,6 +3198,7 @@ function restoreRunnersFromSave(savedRunners) {
       state: "safe",
       colorClass: r.colorClass,
       speed: 118,
+      route: [],
     };
   });
   renderPlayingRunners();
