@@ -2805,6 +2805,7 @@ function animatePlaying(timeStamp) {
       if (playingState.isPitched && !playingState.isHit && !playingState.pitchJudged) {
         playingState.swingMissed = true;
         playingState.pitchJudged = true;
+        playSoundSwingMiss();
         updatePlayingCall("STRIKE", "is-strike");
         gameProcessStrike();
       }
@@ -2931,7 +2932,7 @@ function animatePlaying(timeStamp) {
         playingState.pitchJudged = true;
         const isStrike = playingState.bounceCount === 0;
         updatePlayingCall(isStrike ? "STRIKE" : "BALL", isStrike ? "is-strike" : "is-ball");
-        if (isStrike) gameProcessStrike(); else gameProcessBall();
+        if (isStrike) { playSoundStrike(); gameProcessStrike(); } else { playSoundBall(); gameProcessBall(); }
       }
     }
 
@@ -2940,7 +2941,7 @@ function animatePlaying(timeStamp) {
       if (playingState.ballX < -28 || playingState.ballX > rect.width + 28) {
         playingState.pitchJudged = true;
         updatePlayingCall("BALL", "is-ball");
-        gameProcessBall();
+        playSoundBall(); gameProcessBall();
       }
     }
 
@@ -2976,7 +2977,7 @@ function animatePlaying(timeStamp) {
       if (!playingState.pitchJudged) {
         playingState.pitchJudged = true;
         updatePlayingCall("BALL", "is-ball");
-        gameProcessBall();
+        playSoundBall(); gameProcessBall();
       }
       finishPlayingPitch(playingState.isHit ? "HIT" : elements.playingCall.textContent);
     }
@@ -3471,6 +3472,84 @@ function playSoundChime() {
     osc.start(t);
     osc.stop(t + 2.2);
   });
+}
+
+// ストライク (見逃し): ボールがミットに収まる音
+function playSoundStrike() {
+  const ctx = getAudioCtx();
+  const t = ctx.currentTime;
+
+  // 低域ダンプ (ミット感)
+  const osc = ctx.createOscillator();
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(280, t);
+  osc.frequency.exponentialRampToValueAtTime(70, t + 0.13);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.55, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.13);
+  osc.connect(g);
+  g.connect(ctx.destination);
+  osc.start(t);
+  osc.stop(t + 0.13);
+
+  // ノイズ衝撃
+  const nLen = Math.floor(ctx.sampleRate * 0.05);
+  const nBuf = ctx.createBuffer(1, nLen, ctx.sampleRate);
+  const nd = nBuf.getChannelData(0);
+  for (let i = 0; i < nLen; i++) nd[i] = Math.random() * 2 - 1;
+  const nSrc = ctx.createBufferSource();
+  nSrc.buffer = nBuf;
+  const nFilt = ctx.createBiquadFilter();
+  nFilt.type = "bandpass";
+  nFilt.frequency.value = 700;
+  nFilt.Q.value = 1.2;
+  const nGain = ctx.createGain();
+  nGain.gain.setValueAtTime(0.8, t);
+  nGain.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+  nSrc.connect(nFilt);
+  nFilt.connect(nGain);
+  nGain.connect(ctx.destination);
+  nSrc.start(t);
+}
+
+// 空振り: バットが空を切る音
+function playSoundSwingMiss() {
+  const ctx = getAudioCtx();
+  const len = Math.floor(ctx.sampleRate * 0.22);
+  const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  const filt = ctx.createBiquadFilter();
+  filt.type = "bandpass";
+  filt.frequency.setValueAtTime(1400, ctx.currentTime);
+  filt.frequency.exponentialRampToValueAtTime(350, ctx.currentTime + 0.18);
+  filt.Q.value = 0.9;
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0.5, ctx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.22);
+  src.connect(filt);
+  filt.connect(gain);
+  gain.connect(ctx.destination);
+  src.start();
+}
+
+// ボール: 低く柔らかい音
+function playSoundBall() {
+  const ctx = getAudioCtx();
+  const t = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(160, t);
+  osc.frequency.exponentialRampToValueAtTime(55, t + 0.22);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.38, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+  osc.connect(g);
+  g.connect(ctx.destination);
+  osc.start(t);
+  osc.stop(t + 0.22);
 }
 
 // 起動: セーブデータがあれば自動再開、なければメニュー表示
