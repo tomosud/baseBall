@@ -2532,6 +2532,61 @@ function checkPlayingBallHitsBases() {
   return false;
 }
 
+// ボールが throw target 上で静止している状態でピックアップされた時のアウト判定
+function checkBallAtThrowTargetOnPickup() {
+  const rect = elements.playingSurface.getBoundingClientRect();
+  const bases = getPlayingBasePositions(rect);
+  const home = getPlayingHomePlate(rect);
+  const allTargets = [
+    ...bases.map((b, i) => ({ pos: b, el: [elements.playingBase0, elements.playingBase1, elements.playingBase2][i], idx: i })),
+    { pos: home, el: elements.playingHomeBase, idx: bases.length },
+  ];
+
+  for (const { pos, el, idx } of allTargets) {
+    if (!el.classList.contains("is-throw-target")) continue;
+    const dist = Math.hypot(playingState.ballX - pos.x, playingState.ballY - pos.y);
+    const hitRadius = idx < bases.length ? 23 : 34;
+    if (dist > hitRadius) continue;
+
+    const runnerIndex = playingState.runners.findIndex((r) => r.state === "running" && r.toBaseIndex === idx && !r.fromWalk);
+    if (runnerIndex === -1) continue;
+
+    const outRunner = playingState.runners[runnerIndex];
+    outRunner.state = "out";
+    renderPlayingRunners();
+
+    el.classList.add("is-tagged");
+    setTimeout(() => el.classList.remove("is-tagged"), 800);
+
+    const outRunnerId = outRunner.id;
+    setTimeout(() => {
+      playingState.runners = playingState.runners.filter((r) => r.id !== outRunnerId);
+      renderPlayingRunners();
+    }, 500);
+
+    const stillHasRunners = playingState.runners.some((r) => r !== outRunner && r.state === "running");
+    if (stillHasRunners) {
+      updatePlayingCall("OUT!", "is-out");
+      gameProcessOut("OUT!");
+      playingState.isHit = false;
+      playingState.isFielderThrow = true;
+      playingState.isResting = true;
+      playingState.isBallActive = false;
+      playingState.isPitched = false;
+      elements.playingBall.classList.add("is-resting");
+    } else {
+      playingState.isBallActive = false;
+      playingState.isPitched = false;
+      playingState.isFielderThrow = false;
+      hidePlayingBall();
+      updatePlayingCall("OUT!", "is-out");
+      gameProcessOut("OUT!");
+    }
+    return true;
+  }
+  return false;
+}
+
 function reflectPlayingBallFromBat() {
   reflectBallFromBatModel(playingState, {
     batElement: elements.playingBat,
@@ -3024,6 +3079,7 @@ function beginPlayingPointer(event) {
       Math.hypot(point.x - playingState.ballX, point.y - playingState.ballY) <= 36;
     playingState.isFielderThrow = nearBall;
     if (nearBall) {
+      if (checkBallAtThrowTargetOnPickup()) return;
       playingState.isBallActive = false;
       playingState.isHit = false;
       playingState.isResting = false;
