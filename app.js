@@ -2774,7 +2774,9 @@ function finishPlayingPitch(message = "READY") {
   playingState.isPitched = false;
   playingState.nextPitchReadyAt = performance.now() + 800;
   elements.playingHint.textContent = "Pitcher: swipe up to pitch  /  Batter: swing up";
-  // フィールダーピックアップ状態をクリア（ドラッグ制限を次の通常投球に引き継がない）
+  // フィールダーピックアップ／フィールダースロー状態をクリア（ドラッグ制限を次の通常投球に引き継がない）
+  // isFielderThrow と isResting も同期してリセットすることで、次の beginPlayingPointer の
+  // ballOnField 判定が古い状態を参照しないようにする。
   playingState.wasPickedUp = false;
   playingState.pickupX = 0;
   playingState.pickupY = 0;
