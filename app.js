@@ -3105,6 +3105,9 @@ function beginPlayingPointer(event) {
 
     if (playingState.isPitched) return; // まだ飛行中
 
+    // 走者が走っている間・ホームラン中は投球不可（フィールダーのみ操作可）
+    if (hasActiveRunners() || playingState.isHomeRun) return;
+
     // 通常のピッチ開始
     playingState.pitcherPointerId = event.pointerId;
     elements.playingSurface.setPointerCapture(event.pointerId);
