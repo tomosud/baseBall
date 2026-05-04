@@ -2377,6 +2377,25 @@ function updatePlayingRunners(dt) {
     const advanceToNextInRoute = () => {
       runner.x = target.x;
       runner.y = target.y;
+
+      // フィールダースローが静止している塁にランナーが到達した場合はアウト
+      // （isBallActive=false で checkPlayingBallHitsBases が動かない状態をカバー）
+      if (
+        !runner.fromWalk &&
+        !playingState.isHit &&
+        playingState.isFielderThrow &&
+        playingState.isResting &&
+        !playingState.isBallActive
+      ) {
+        const ballDist = Math.hypot(playingState.ballX - target.x, playingState.ballY - target.y);
+        if (ballDist <= PLAYING_BASE_HIT_RADIUS) {
+          const baseElArr = [elements.playingBase0, elements.playingBase1, elements.playingBase2];
+          const baseEl = runner.toBaseIndex < bases.length ? baseElArr[runner.toBaseIndex] : elements.playingHomeBase;
+          applyBaseOut(runner, baseEl);
+          return;
+        }
+      }
+
       if (runner.route && runner.route.length > 0) {
         // まだ次の塁がある → 続けて走る
         const nextIndex = runner.route.shift();
@@ -2471,64 +2490,74 @@ function updatePlayingThrowTargets() {
   });
 }
 
+// 送球アウト判定の当たり半径（視覚インジケーターのアニメーション最大スケールに合わせて全塁統一）
+const PLAYING_BASE_HIT_RADIUS = 34;
+
+// アウト処理の共通ロジック（checkPlayingBallHitsBases / checkBallAtThrowTargetOnPickup / advanceToNextInRoute から呼ばれる）
+function applyBaseOut(outRunner, baseEl) {
+  outRunner.state = "out";
+  renderPlayingRunners();
+
+  // 塁を赤くフラッシュ
+  baseEl.classList.add("is-tagged");
+  setTimeout(() => baseEl.classList.remove("is-tagged"), 800);
+
+  // アウトランナー削除（少し後）— IDで絞り込むことでレースコンディションを防ぐ
+  const outRunnerId = outRunner.id;
+  setTimeout(() => {
+    playingState.runners = playingState.runners.filter((r) => r.id !== outRunnerId);
+    renderPlayingRunners();
+  }, 500);
+
+  const stillHasRunners = playingState.runners.some((r) => r !== outRunner && r.state === "running");
+
+  if (stillHasRunners) {
+    // 走者がまだいる → ボールを残してフィールダーが拾い直せる状態に
+    updatePlayingCall("OUT!", "is-out");
+    gameProcessOut("OUT!");
+    playingState.isHit = false;
+    playingState.isFielderThrow = true;
+    playingState.isResting = true;
+    playingState.isBallActive = false;
+    playingState.isPitched = false;
+    elements.playingBall.classList.add("is-resting");
+  } else {
+    // 走者がいなくなる → ボール消滅・通常モードへ
+    playingState.isBallActive = false;
+    playingState.isPitched = false;
+    playingState.isFielderThrow = false;
+    hidePlayingBall();
+    updatePlayingCall("OUT!", "is-out");
+    gameProcessOut("OUT!");
+  }
+}
+
 function checkPlayingBallHitsBases() {
   if (!playingState.isBallActive || playingState.isHit) return false;
 
   const rect = elements.playingSurface.getBoundingClientRect();
   const bases = getPlayingBasePositions(rect);
   const home = getPlayingHomePlate(rect);
+  const baseEls = [elements.playingBase0, elements.playingBase1, elements.playingBase2];
   const allTargets = [
-    ...bases.map((b, i) => ({ pos: b, el: [elements.playingBase0, elements.playingBase1, elements.playingBase2][i], idx: i })),
+    ...bases.map((b, i) => ({ pos: b, el: baseEls[i], idx: i })),
     { pos: home, el: elements.playingHomeBase, idx: bases.length },
   ];
 
   for (const { pos, el, idx } of allTargets) {
-    const dist = Math.hypot(playingState.ballX - pos.x, playingState.ballY - pos.y);
-    const isThrowTarget = el.classList.contains("is-throw-target");
-    const hitRadius = isThrowTarget ? (idx < bases.length ? 23 : 34) : 26;
-    if (dist > hitRadius) continue;
-
-    // この塁に向かって走っているランナーを探す（フォアボール走者はアウト対象外）
-    const runnerIndex = playingState.runners.findIndex((r) => r.state === "running" && r.toBaseIndex === idx && !r.fromWalk);
+    // この塁に向かって走っているランナーを先に探す（フォアボール走者はアウト対象外）
+    // DOM クラスではなくランナー状態から直接判定することで 1 フレームの遅延を排除
+    const runnerIndex = playingState.runners.findIndex(
+      (r) => r.state === "running" && r.toBaseIndex === idx && !r.fromWalk,
+    );
     if (runnerIndex === -1) continue;
 
+    // ヒット半径: 視覚インジケーターのアニメーション最大スケールに合わせて統一
+    const dist = Math.hypot(playingState.ballX - pos.x, playingState.ballY - pos.y);
+    if (dist > PLAYING_BASE_HIT_RADIUS) continue;
+
     // アウト!
-    const outRunner = playingState.runners[runnerIndex];
-    outRunner.state = "out";
-    renderPlayingRunners();
-
-    // 塁を赤くフラッシュ
-    el.classList.add("is-tagged");
-    setTimeout(() => el.classList.remove("is-tagged"), 800);
-
-    // アウトランナー削除（少し後）— IDで絞り込むことでレースコンディションを防ぐ
-    const outRunnerId = outRunner.id;
-    setTimeout(() => {
-      playingState.runners = playingState.runners.filter((r) => r.id !== outRunnerId);
-      renderPlayingRunners();
-    }, 500);
-
-    const stillHasRunners = playingState.runners.some((r) => r !== outRunner && r.state === "running");
-
-    if (stillHasRunners) {
-      // 走者がまだいる → ボールを残してフィールダーが拾い直せる状態に
-      updatePlayingCall("OUT!", "is-out");
-      gameProcessOut("OUT!");
-      playingState.isHit = false;
-      playingState.isFielderThrow = true;
-      playingState.isResting = true;
-      playingState.isBallActive = false;
-      playingState.isPitched = false;
-      elements.playingBall.classList.add("is-resting");
-    } else {
-      // 走者がいなくなる → ボール消滅・通常モードへ
-      playingState.isBallActive = false;
-      playingState.isPitched = false;
-      playingState.isFielderThrow = false;
-      hidePlayingBall();
-      updatePlayingCall("OUT!", "is-out");
-      gameProcessOut("OUT!");
-    }
+    applyBaseOut(playingState.runners[runnerIndex], el);
     return true;
   }
 
@@ -2540,51 +2569,24 @@ function checkBallAtThrowTargetOnPickup() {
   const rect = elements.playingSurface.getBoundingClientRect();
   const bases = getPlayingBasePositions(rect);
   const home = getPlayingHomePlate(rect);
+  const baseEls = [elements.playingBase0, elements.playingBase1, elements.playingBase2];
   const allTargets = [
-    ...bases.map((b, i) => ({ pos: b, el: [elements.playingBase0, elements.playingBase1, elements.playingBase2][i], idx: i })),
+    ...bases.map((b, i) => ({ pos: b, el: baseEls[i], idx: i })),
     { pos: home, el: elements.playingHomeBase, idx: bases.length },
   ];
 
   for (const { pos, el, idx } of allTargets) {
-    if (!el.classList.contains("is-throw-target")) continue;
-    const dist = Math.hypot(playingState.ballX - pos.x, playingState.ballY - pos.y);
-    const hitRadius = idx < bases.length ? 23 : 34;
-    if (dist > hitRadius) continue;
-
-    const runnerIndex = playingState.runners.findIndex((r) => r.state === "running" && r.toBaseIndex === idx && !r.fromWalk);
+    // DOM クラスではなくランナー状態から直接判定
+    const runnerIndex = playingState.runners.findIndex(
+      (r) => r.state === "running" && r.toBaseIndex === idx && !r.fromWalk,
+    );
     if (runnerIndex === -1) continue;
 
-    const outRunner = playingState.runners[runnerIndex];
-    outRunner.state = "out";
-    renderPlayingRunners();
+    const dist = Math.hypot(playingState.ballX - pos.x, playingState.ballY - pos.y);
+    if (dist > PLAYING_BASE_HIT_RADIUS) continue;
 
-    el.classList.add("is-tagged");
-    setTimeout(() => el.classList.remove("is-tagged"), 800);
-
-    const outRunnerId = outRunner.id;
-    setTimeout(() => {
-      playingState.runners = playingState.runners.filter((r) => r.id !== outRunnerId);
-      renderPlayingRunners();
-    }, 500);
-
-    const stillHasRunners = playingState.runners.some((r) => r !== outRunner && r.state === "running");
-    if (stillHasRunners) {
-      updatePlayingCall("OUT!", "is-out");
-      gameProcessOut("OUT!");
-      playingState.isHit = false;
-      playingState.isFielderThrow = true;
-      playingState.isResting = true;
-      playingState.isBallActive = false;
-      playingState.isPitched = false;
-      elements.playingBall.classList.add("is-resting");
-    } else {
-      playingState.isBallActive = false;
-      playingState.isPitched = false;
-      playingState.isFielderThrow = false;
-      hidePlayingBall();
-      updatePlayingCall("OUT!", "is-out");
-      gameProcessOut("OUT!");
-    }
+    // アウト!
+    applyBaseOut(playingState.runners[runnerIndex], el);
     return true;
   }
   return false;
