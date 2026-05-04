@@ -373,6 +373,8 @@ function gameDoChange() {
   stopPlayingAnimation();
   resetPlayingState();
 
+  stopCrowdCheer();
+  playSoundChime();
   showOverlay("CHANGE!", "", false);
   setTimeout(() => {
     hideOverlay();
@@ -2453,6 +2455,7 @@ function renderPlayingRunners() {
 
   updatePlayingMode();
   updatePlayingThrowTargets();
+  if (hasActiveRunners()) { startCrowdCheer(); } else { stopCrowdCheer(); }
 }
 
 function updatePlayingThrowTargets() {
@@ -2588,6 +2591,7 @@ function checkBallAtThrowTargetOnPickup() {
 }
 
 function reflectPlayingBallFromBat() {
+  playSoundKakin();
   reflectBallFromBatModel(playingState, {
     batElement: elements.playingBat,
     hitAngleElement: elements.playingBatHitAngle,
@@ -2737,6 +2741,7 @@ function resetPlayingState() {
 }
 
 function launchPlayingBall(vector) {
+  playSoundWhoosh();
   const launch = launchPitchModel(playingState, vector, getPlayingStrikeZoneRect());
   playingState.pitchRawSpeed = clamp(launch.scaledSpeed, physics.battingMinRawSpeed, physics.battingMaxRawSpeed);
   playingState.isBallActive = true;
@@ -3310,6 +3315,162 @@ function restoreRunnersFromSave(savedRunners) {
     };
   });
   renderPlayingRunners();
+}
+
+// ===== Sound Effects =====
+
+let _audioCtx = null;
+function getAudioCtx() {
+  if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (_audioCtx.state === "suspended") _audioCtx.resume();
+  return _audioCtx;
+}
+
+// シュッ: ノイズのバンドパス + 周波数スイープ
+function playSoundWhoosh() {
+  const ctx = getAudioCtx();
+  const len = Math.floor(ctx.sampleRate * 0.22);
+  const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+
+  const filt = ctx.createBiquadFilter();
+  filt.type = "bandpass";
+  filt.frequency.setValueAtTime(3200, ctx.currentTime);
+  filt.frequency.exponentialRampToValueAtTime(400, ctx.currentTime + 0.18);
+  filt.Q.value = 1.2;
+
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0.55, ctx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.22);
+
+  src.connect(filt);
+  filt.connect(gain);
+  gain.connect(ctx.destination);
+  src.start();
+}
+
+// カキン: ノイズ衝撃 + 金属的オシレーター
+function playSoundKakin() {
+  const ctx = getAudioCtx();
+  const t = ctx.currentTime;
+
+  // ノイズバースト
+  const nLen = Math.floor(ctx.sampleRate * 0.06);
+  const nBuf = ctx.createBuffer(1, nLen, ctx.sampleRate);
+  const nd = nBuf.getChannelData(0);
+  for (let i = 0; i < nLen; i++) nd[i] = Math.random() * 2 - 1;
+  const nSrc = ctx.createBufferSource();
+  nSrc.buffer = nBuf;
+  const nFilt = ctx.createBiquadFilter();
+  nFilt.type = "bandpass";
+  nFilt.frequency.value = 3000;
+  nFilt.Q.value = 2.5;
+  const nGain = ctx.createGain();
+  nGain.gain.setValueAtTime(1.4, t);
+  nGain.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+  nSrc.connect(nFilt);
+  nFilt.connect(nGain);
+  nGain.connect(ctx.destination);
+  nSrc.start();
+
+  // 金属リング（2音）
+  [[1800, 0.45, 0.4], [2900, 0.28, 0.25]].forEach(([freq, vol, dur]) => {
+    const osc = ctx.createOscillator();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(freq, t);
+    osc.frequency.exponentialRampToValueAtTime(freq * 0.55, t + dur);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    osc.connect(g);
+    g.connect(ctx.destination);
+    osc.start(t);
+    osc.stop(t + dur);
+  });
+}
+
+// 歓声ノイズ (走者が走っている間ループ)
+let _crowdNodes = null;
+function startCrowdCheer() {
+  if (_crowdNodes) return;
+  const ctx = getAudioCtx();
+
+  // ピンクノイズ生成 (2秒バッファをループ)
+  const len = ctx.sampleRate * 2;
+  const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+  for (let i = 0; i < len; i++) {
+    const w = Math.random() * 2 - 1;
+    b0 = 0.99886 * b0 + w * 0.0555179; b1 = 0.99332 * b1 + w * 0.0750759;
+    b2 = 0.96900 * b2 + w * 0.1538520; b3 = 0.86650 * b3 + w * 0.3104856;
+    b4 = 0.55000 * b4 + w * 0.5329522; b5 = -0.7616 * b5 - w * 0.0168980;
+    d[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362) * 0.11;
+    b6 = w * 0.115926;
+  }
+
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  src.loop = true;
+
+  const filt = ctx.createBiquadFilter();
+  filt.type = "bandpass";
+  filt.frequency.value = 1000;
+  filt.Q.value = 0.6;
+
+  // LFO で群衆の波感を演出
+  const lfo = ctx.createOscillator();
+  lfo.frequency.value = 2.8;
+  const lfoGain = ctx.createGain();
+  lfoGain.gain.value = 0.25;
+  lfo.connect(lfoGain);
+
+  const master = ctx.createGain();
+  master.gain.setValueAtTime(0, ctx.currentTime);
+  master.gain.linearRampToValueAtTime(0.45, ctx.currentTime + 0.6);
+  lfoGain.connect(master.gain);
+
+  src.connect(filt);
+  filt.connect(master);
+  master.connect(ctx.destination);
+  lfo.start();
+  src.start();
+
+  _crowdNodes = { src, lfo, master };
+}
+
+function stopCrowdCheer() {
+  if (!_crowdNodes) return;
+  const ctx = getAudioCtx();
+  const { src, lfo, master } = _crowdNodes;
+  _crowdNodes = null;
+  master.gain.cancelScheduledValues(ctx.currentTime);
+  master.gain.setValueAtTime(master.gain.value, ctx.currentTime);
+  master.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.5);
+  setTimeout(() => { try { src.stop(); lfo.stop(); } catch (_) {} }, 600);
+}
+
+// ポーン: 和音チャイム (C5-E5-G5)
+function playSoundChime() {
+  const ctx = getAudioCtx();
+  [523.25, 659.25, 783.99].forEach((freq, i) => {
+    const t = ctx.currentTime + i * 0.08;
+    const osc = ctx.createOscillator();
+    osc.type = "sine";
+    osc.frequency.value = freq;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.28, t + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 2.2);
+    osc.connect(g);
+    g.connect(ctx.destination);
+    osc.start(t);
+    osc.stop(t + 2.2);
+  });
 }
 
 // 起動: セーブデータがあれば自動再開、なければメニュー表示
