@@ -2481,7 +2481,8 @@ function checkPlayingBallHitsBases() {
 
   for (const { pos, el, idx } of allTargets) {
     const dist = Math.hypot(playingState.ballX - pos.x, playingState.ballY - pos.y);
-    if (dist > 26) continue;
+    const hitRadius = el.classList.contains("is-throw-target") ? 34 : 26;
+    if (dist > hitRadius) continue;
 
     // この塁に向かって走っているランナーを探す（フォアボール走者はアウト対象外）
     const runnerIndex = playingState.runners.findIndex((r) => r.state === "running" && r.toBaseIndex === idx && !r.fromWalk);
