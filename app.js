@@ -2192,7 +2192,7 @@ function createSafeRunner(baseIndex, bases) {
     progress: 1,
     state: "safe",
     colorClass: getUnusedRunnerColor(),
-    speed: 147,
+    speed: 118,
     route: [],
   };
 }
@@ -2253,7 +2253,7 @@ function advanceRunnersOnWalk() {
       progress: 0,
       state: "running",
       colorClass,
-      speed: 118,
+      speed: 94,
       fromWalk: true,
       route: [],
     });
@@ -2347,7 +2347,7 @@ function spawnRunnerOnHit() {
     progress: 0,
     state: "running",
     colorClass,
-    speed: 118,
+    speed: 94,
     route: [],
   });
 
@@ -3247,7 +3247,7 @@ function restoreRunnersFromSave(savedRunners) {
       progress: 1,
       state: "safe",
       colorClass: r.colorClass,
-      speed: 118,
+      speed: 94,
       route: [],
     };
   });
