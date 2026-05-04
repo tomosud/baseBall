@@ -2774,6 +2774,12 @@ function finishPlayingPitch(message = "READY") {
   playingState.isPitched = false;
   playingState.nextPitchReadyAt = performance.now() + 800;
   elements.playingHint.textContent = "Pitcher: swipe up to pitch  /  Batter: swing up";
+  // フィールダーピックアップ状態をクリア（ドラッグ制限を次の通常投球に引き継がない）
+  playingState.wasPickedUp = false;
+  playingState.pickupX = 0;
+  playingState.pickupY = 0;
+  playingState.isFielderThrow = false;
+  playingState.isResting = false;
 }
 
 function animatePlaying(timeStamp) {
@@ -3062,6 +3068,8 @@ function updatePlayingMode() {
       playingState.wasPickedUp = false;
       playingState.pickupX = 0;
       playingState.pickupY = 0;
+      // ホームラン状態をクリア（全走者得点後に次の投球を許可）
+      playingState.isHomeRun = false;
     }
   }
 }
@@ -3109,6 +3117,13 @@ function beginPlayingPointer(event) {
     // ただし nearBall=true でボールを今拾った直後はフィールダースローを許可。
     const isWalkInProgress = playingState.runners.some((r) => r.state === "running" && r.fromWalk);
     if (!nearBall && (isWalkInProgress || playingState.isHomeRun)) return;
+
+    // 通常投球開始時（ピックアップなし）はフィールダーピックアップ状態をクリア
+    if (!nearBall) {
+      playingState.wasPickedUp = false;
+      playingState.pickupX = 0;
+      playingState.pickupY = 0;
+    }
 
     // 通常のピッチ開始（またはピックアップ直後のフィールダースロー開始）
     playingState.pitcherPointerId = event.pointerId;
