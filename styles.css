@@ -465,6 +465,24 @@ button {
   user-select: none;
 }
 
+.playing-surface.is-homerun-flash::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 100;
+  animation: homerun-flash 0.9s ease-out forwards;
+}
+
+@keyframes homerun-flash {
+  0%   { background: rgba(255, 220, 0, 0.75); }
+  18%  { background: rgba(255, 140, 0, 0.55); }
+  36%  { background: rgba(255, 220, 0, 0.45); }
+  55%  { background: rgba(255, 140, 0, 0.25); }
+  75%  { background: rgba(255, 220, 0, 0.12); }
+  100% { background: rgba(255, 220, 0, 0);    }
+}
+
 /* 上部HUD（リセット・イニング・BSO） */
 .playing-status-bar {
   position: absolute;

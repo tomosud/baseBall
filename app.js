@@ -2674,6 +2674,10 @@ function triggerHomeRun() {
   }
   elements.playingRunLabel.textContent = "ホームラン！";
   updatePlayingCall("ホームラン！", "is-strike");
+  startHomeRunCheer();
+  // 画面点滅
+  elements.playingSurface.classList.add("is-homerun-flash");
+  setTimeout(() => elements.playingSurface.classList.remove("is-homerun-flash"), 950);
 }
 
 function startPlayingSwing(vector) {
@@ -3447,12 +3451,79 @@ function startCrowdCheer() {
 function stopCrowdCheer() {
   if (!_crowdNodes) return;
   const ctx = getAudioCtx();
-  const { src, lfo, master } = _crowdNodes;
+  const { src, lfo, master, _extra: extra = [] } = _crowdNodes;
   _crowdNodes = null;
   master.gain.cancelScheduledValues(ctx.currentTime);
   master.gain.setValueAtTime(master.gain.value, ctx.currentTime);
   master.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.5);
-  setTimeout(() => { try { src.stop(); lfo.stop(); } catch (_) {} }, 600);
+  setTimeout(() => {
+    try { src.stop(); lfo.stop(); } catch (_) {}
+    extra.forEach((n) => { try { n.stop(); } catch (_) {} });
+  }, 600);
+}
+
+// ホームラン歓声: 通常より大きく・速いLFO・2層ノイズ＋オーという上昇ワウ
+function startHomeRunCheer() {
+  stopCrowdCheer();
+  const ctx = getAudioCtx();
+
+  // ピンクノイズ生成 (2秒バッファをループ)
+  const len = ctx.sampleRate * 2;
+  const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+  for (let i = 0; i < len; i++) {
+    const w = Math.random() * 2 - 1;
+    b0 = 0.99886 * b0 + w * 0.0555179; b1 = 0.99332 * b1 + w * 0.0750759;
+    b2 = 0.96900 * b2 + w * 0.1538520; b3 = 0.86650 * b3 + w * 0.3104856;
+    b4 = 0.55000 * b4 + w * 0.5329522; b5 = -0.7616 * b5 - w * 0.0168980;
+    d[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362) * 0.11;
+    b6 = w * 0.115926;
+  }
+
+  // 低域層
+  const src1 = ctx.createBufferSource();
+  src1.buffer = buf; src1.loop = true;
+  const filt1 = ctx.createBiquadFilter();
+  filt1.type = "bandpass"; filt1.frequency.value = 900; filt1.Q.value = 0.5;
+
+  // 高域層（興奮感）
+  const src2 = ctx.createBufferSource();
+  src2.buffer = buf; src2.loop = true; src2.loopStart = 0.3;
+  const filt2 = ctx.createBiquadFilter();
+  filt2.type = "bandpass"; filt2.frequency.value = 2400; filt2.Q.value = 0.8;
+
+  // 速い LFO (5Hz) でざわめき感
+  const lfo = ctx.createOscillator();
+  lfo.frequency.value = 5;
+  const lfoGain = ctx.createGain();
+  lfoGain.gain.value = 0.38;
+  lfo.connect(lfoGain);
+
+  const master = ctx.createGain();
+  master.gain.setValueAtTime(0, ctx.currentTime);
+  master.gain.linearRampToValueAtTime(0.7, ctx.currentTime + 0.35);
+  lfoGain.connect(master.gain);
+
+  src1.connect(filt1); filt1.connect(master);
+  src2.connect(filt2); filt2.connect(master);
+  master.connect(ctx.destination);
+
+  // 打った瞬間の「オーッ」上昇感（短い上昇スイープ）
+  const sweep = ctx.createOscillator();
+  sweep.type = "sawtooth";
+  sweep.frequency.setValueAtTime(220, ctx.currentTime);
+  sweep.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.6);
+  const sweepGain = ctx.createGain();
+  sweepGain.gain.setValueAtTime(0.12, ctx.currentTime);
+  sweepGain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.6);
+  sweep.connect(sweepGain);
+  sweepGain.connect(ctx.destination);
+
+  lfo.start(); src1.start(); src2.start(); sweep.start();
+  sweep.stop(ctx.currentTime + 0.65);
+
+  _crowdNodes = { src: src1, lfo, master, _extra: [src2, sweep] };
 }
 
 // ポーン: 和音チャイム (C5-E5-G5)
