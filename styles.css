@@ -1041,6 +1041,12 @@ button {
   pointer-events: none;
 }
 
+#playingBase0.is-throw-target::before,
+#playingBase1.is-throw-target::before,
+#playingBase2.is-throw-target::before {
+  inset: -20px;
+}
+
 @keyframes throw-target-pulse {
   from {
     opacity: 0.32;
