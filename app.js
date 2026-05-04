@@ -3105,10 +3105,12 @@ function beginPlayingPointer(event) {
 
     if (playingState.isPitched) return; // まだ飛行中
 
-    // 走者が走っている間・ホームラン中は投球不可（フィールダーのみ操作可）
-    if (hasActiveRunners() || playingState.isHomeRun) return;
+    // フォアボール中（fromWalk の走者が走っている）またはホームラン中は新規投球を禁止。
+    // ただし nearBall=true でボールを今拾った直後はフィールダースローを許可。
+    const isWalkInProgress = playingState.runners.some((r) => r.state === "running" && r.fromWalk);
+    if (!nearBall && (isWalkInProgress || playingState.isHomeRun)) return;
 
-    // 通常のピッチ開始
+    // 通常のピッチ開始（またはピックアップ直後のフィールダースロー開始）
     playingState.pitcherPointerId = event.pointerId;
     elements.playingSurface.setPointerCapture(event.pointerId);
     playingState.pitcherTrail = [];
