@@ -1032,8 +1032,8 @@ button {
 .playing-base.is-throw-target::before {
   content: "";
   position: absolute;
-  inset: -7px;
-  border-radius: 0;
+  inset: -25px;
+  border-radius: 50%;
   border: 2px solid rgba(255, 59, 48, 0.68);
   background: transparent;
   box-shadow: 0 0 12px rgba(255, 59, 48, 0.46);
