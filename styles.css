@@ -1044,7 +1044,8 @@ button {
 #playingBase0.is-throw-target::before,
 #playingBase1.is-throw-target::before,
 #playingBase2.is-throw-target::before {
-  inset: -20px;
+  inset: -7px;
+  border-radius: 0;
 }
 
 @keyframes throw-target-pulse {

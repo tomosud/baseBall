@@ -2482,7 +2482,7 @@ function checkPlayingBallHitsBases() {
   for (const { pos, el, idx } of allTargets) {
     const dist = Math.hypot(playingState.ballX - pos.x, playingState.ballY - pos.y);
     const isThrowTarget = el.classList.contains("is-throw-target");
-    const hitRadius = isThrowTarget ? (idx < bases.length ? 29 : 34) : 26;
+    const hitRadius = isThrowTarget ? (idx < bases.length ? 23 : 34) : 26;
     if (dist > hitRadius) continue;
 
     // この塁に向かって走っているランナーを探す（フォアボール走者はアウト対象外）
