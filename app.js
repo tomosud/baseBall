@@ -2265,9 +2265,9 @@ function advanceRunnersOnWalk() {
 function getPlayingBasePositions(rect) {
   const topWallY = getPlayingTopWallY();
   return [
-    { x: rect.width * 0.94, y: rect.height * 0.36 }, // 1塁（右端）
+    { x: rect.width * 0.94, y: rect.height * 0.47 }, // 1塁（右端）
     { x: rect.width * 0.50, y: topWallY + 34 }, // 2塁（上壁近く中央）
-    { x: rect.width * 0.06, y: rect.height * 0.36 }, // 3塁（左端）
+    { x: rect.width * 0.06, y: rect.height * 0.47 }, // 3塁（左端）
   ];
 }
 
