@@ -249,9 +249,11 @@ const gameState = {
   inningScores: Array.from({ length: 9 }, () => [0, 0]),
   phase: "pregame",    // "pregame"|"playing"|"change"|"gameset"
   maxInnings: 9,
+  playToken: 0,
 };
 
 function resetGameState() {
+  gameState.playToken++;
   gameState.inning = 1;
   gameState.isTop = true;
   gameState.outs = 0;
@@ -260,6 +262,17 @@ function resetGameState() {
   gameState.score = [0, 0];
   gameState.inningScores = Array.from({ length: 9 }, () => [0, 0]);
   gameState.phase = "pregame";
+}
+
+function shouldEndOnWalkoff() {
+  return !gameState.isTop &&
+    gameState.inning === gameState.maxInnings &&
+    gameState.score[1] > gameState.score[0];
+}
+
+function hasPendingHomeRunScores() {
+  return playingState.isHomeRun &&
+    playingState.runners.some((runner) => runner.state === "running");
 }
 
 function resetAtBat() {
@@ -311,7 +324,11 @@ function gameProcessStrike() {
   gameState.strikes++;
   updateStatusBar();
   if (gameState.strikes >= 3) {
-    setTimeout(() => gameProcessOut("三振!"), 600);
+    const token = gameState.playToken;
+    setTimeout(() => {
+      if (token !== gameState.playToken || gameState.phase !== "playing") return;
+      gameProcessOut("三振!");
+    }, 600);
   } else {
     saveGameToDB();
   }
@@ -322,7 +339,9 @@ function gameProcessBall() {
   gameState.balls++;
   updateStatusBar();
   if (gameState.balls >= 4) {
+    const token = gameState.playToken;
     setTimeout(() => {
+      if (token !== gameState.playToken || gameState.phase !== "playing") return;
       updatePlayingCall("フォアボール", "is-ball");
       advanceRunnersOnWalk();
       resetAtBat();
@@ -336,13 +355,24 @@ function gameProcessBall() {
 
 function gameProcessOut(reason) {
   if (gameState.phase !== "playing") return;
-  gameState.outs++;
+  gameState.outs = Math.min(3, gameState.outs + 1);
   updateStatusBar();
   updatePlayingCall(reason || "OUT!", "is-out");
   resetAtBat();
   saveGameToDB();
   if (gameState.outs >= 3) {
-    setTimeout(gameDoChange, 1000);
+    gameState.phase = "change";
+    playingState.isRunning = false;
+    playingState.isBallActive = false;
+    playingState.isPitched = false;
+    stopPlayingAnimation();
+    stopCrowdCheer();
+    clearSaveData();
+    const token = gameState.playToken;
+    setTimeout(() => {
+      if (token !== gameState.playToken || gameState.phase !== "change") return;
+      gameDoChange();
+    }, 1000);
   }
 }
 
@@ -359,13 +389,17 @@ function gameProcessScore() {
   addRunForBattingTeam();
   saveGameToDB();
   updatePlayingCall("得点！", "is-strike");
+  if (shouldEndOnWalkoff() && !hasPendingHomeRunScores()) {
+    gameDoGameSet();
+    return;
+  }
   setTimeout(() => {
     if (elements.playingCall.textContent === "得点！") updatePlayingCall("READY");
   }, 1500);
 }
 
 function gameDoChange() {
-  if (gameState.phase !== "playing") return;
+  if (gameState.phase !== "playing" && gameState.phase !== "change") return;
   gameState.phase = "change";
 
   // チェンジ: プレイを停止してオーバーレイ表示
@@ -408,6 +442,7 @@ function gameDoChange() {
 
 function gameDoGameSet() {
   gameState.phase = "gameset";
+  gameState.playToken++;
   clearSaveData();
   playingState.isRunning = false;
   stopPlayingAnimation();
@@ -1994,7 +2029,7 @@ elements.openPlayingPrototype.addEventListener("click", () => showPlayingScreen(
 elements.openPlayingPrototype3.addEventListener("click", () => showPlayingScreen(3));
 elements.backButton.addEventListener("click", showMainScreen);
 elements.battingBackButton.addEventListener("click", showMainScreen);
-elements.overlayButton.addEventListener("click", () => { showPlayingScreen(); });
+elements.overlayButton.addEventListener("click", () => { showPlayingScreen(gameState.maxInnings || 9); });
 
 // リセットボタン長押し（3秒）
 let cancelResetHold = () => {};
@@ -2310,6 +2345,7 @@ function spawnRunnerOnHit() {
   // 既存のセーフランナーを1塁進塁させる（3塁セーフはホームへ）
   for (const runner of playingState.runners) {
     if (runner.state === "safe") {
+      runner.fromWalk = false;
       const nextBase = runner.toBaseIndex + 1;
       const fromPos = runner.toBaseIndex < bases.length ? bases[runner.toBaseIndex] : home;
       runner.fromX = fromPos.x;
@@ -2362,6 +2398,7 @@ function updatePlayingRunners(dt) {
   const rect = elements.playingSurface.getBoundingClientRect();
   const bases = getPlayingBasePositions(rect);
   const home = getPlayingHomePlate(rect);
+  let runnersSettled = false;
 
   for (const runner of playingState.runners) {
     if (runner.state === "out" || runner.state === "scored") continue;
@@ -2406,9 +2443,12 @@ function updatePlayingRunners(dt) {
         // state は "running" のまま
       } else if (runner.toBaseIndex >= bases.length) {
         runner.state = "scored";
+        runnersSettled = true;
         showPlayingScore();
       } else {
         runner.state = "safe";
+        runner.fromWalk = false;
+        runnersSettled = true;
       }
     };
 
@@ -2432,6 +2472,7 @@ function updatePlayingRunners(dt) {
   playingState.runners = playingState.runners.filter((r) => r.state !== "scored");
 
   renderPlayingRunners();
+  if (runnersSettled && !hasActiveRunners()) saveGameToDB();
 }
 
 function renderPlayingRunners() {
@@ -2929,7 +2970,7 @@ function animatePlaying(timeStamp) {
       (playingState.isSwinging || playingState.swingLingerTimer > 0) &&
       !playingState.isHit &&
       !playingState.isFielderThrow &&
-      (!playingState.pitchJudged || isPlayingBallInContactBand()) &&
+      !playingState.pitchJudged &&
       checkBatModelContact(playingState, previousX, previousY)
     ) {
       updateContactableBall(elements.playingBall, false);
@@ -3270,7 +3311,7 @@ function openDB() {
 function saveGameToDB() {
   if (gameState.phase !== "playing") return;
   const savedRunners = playingState.runners
-    .filter((r) => r.state !== "out" && r.state !== "scored")
+    .filter((r) => r.state === "safe")
     .map((r) => ({ toBaseIndex: r.toBaseIndex, colorClass: r.colorClass }));
   const data = {
     inning: gameState.inning,
@@ -3340,6 +3381,7 @@ function restoreRunnersFromSave(savedRunners) {
       state: "safe",
       colorClass: r.colorClass,
       speed: 94,
+      fromWalk: false,
       route: [],
     };
   });
