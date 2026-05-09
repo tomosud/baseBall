@@ -1,4 +1,4 @@
-const state = {
+﻿const state = {
   activePointerId: null,
   trail: [],
   pitchPath: [],
@@ -357,6 +357,7 @@ function gameProcessOut(reason) {
   if (gameState.phase !== "playing") return;
   gameState.outs = Math.min(3, gameState.outs + 1);
   updateStatusBar();
+  playSfx("out");
   updatePlayingCall(reason || "OUT!", "is-out");
   resetAtBat();
   saveGameToDB();
@@ -388,6 +389,7 @@ function gameProcessScore() {
   if (gameState.phase !== "playing") return;
   addRunForBattingTeam();
   saveGameToDB();
+  playSfx("score");
   updatePlayingCall("得点！", "is-strike");
   if (shouldEndOnWalkoff() && !hasPendingHomeRunScores()) {
     gameDoGameSet();
@@ -446,6 +448,9 @@ function gameDoGameSet() {
   clearSaveData();
   playingState.isRunning = false;
   stopPlayingAnimation();
+  stopRunnerLoop();
+  stopHomerunLoop();
+  playSfx("gameEnd");
   const [blue, red] = gameState.score;
   let winner;
   if (blue > red) winner = "青軍の勝ち！";
@@ -2414,6 +2419,7 @@ function updatePlayingRunners(dt) {
     const advanceToNextInRoute = () => {
       runner.x = target.x;
       runner.y = target.y;
+      playSfx("baseReach");
 
       // フィールダースローが静止している塁にランナーが到達した場合はアウト
       // （isBallActive=false で checkPlayingBallHitsBases が動かない状態をカバー）
@@ -2649,6 +2655,7 @@ function reflectPlayingBallFromBat() {
 
 function applyPlayingBounce() {
   updatePlayingCall("Bound!", "is-ball");
+  playSfx("ballDrop");
   applyPitchModelBounce(playingState, getPlayingStrikeZoneRect(), { startRolling: startPlayingRolling, noJudge: true });
   playingState.isResting = true;
   elements.playingBall.classList.add("is-resting");
@@ -2690,11 +2697,13 @@ function applyPlayingEdgeBounce(rect) {
       model.ballY = topWallY;
       model.velocityY *= -physics.battingEdgeBounceRestitution;
       model.velocityX *= physics.battingEdgeBounceRestitution;
+      playSfx("wallBounce");
     }
   } else if (model.ballY >= rect.height - margin && model.velocityY > 0) {
     model.ballY = rect.height - margin;
     model.velocityY *= -physics.battingEdgeBounceRestitution;
     model.velocityX *= physics.battingEdgeBounceRestitution;
+    playSfx("wallBounce");
   }
 }
 
@@ -3062,6 +3071,7 @@ function showPlayingScreen(maxInnings = 9) {
   gameState.phase = "playing";
   updateStatusBar();
   // PLAY BALL オーバーレイを 1.2s 表示してから試合開始
+  playSfx("start");
   showOverlay("PLAY BALL!", "", false);
   playingState.isRunning = false;
   elements.playingResetBtn.style.pointerEvents = "none";
@@ -3389,306 +3399,98 @@ function restoreRunnersFromSave(savedRunners) {
 }
 
 // ===== Sound Effects =====
+// MP3 アセットを使用。短い効果音は同時再生のため都度 new Audio() で生成し、
+// ループ系（走者の足音／ホームラン中のざわめき）は単一インスタンスを管理する。
 
-let _audioCtx = null;
-function getAudioCtx() {
-  if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  if (_audioCtx.state === "suspended") _audioCtx.resume();
-  return _audioCtx;
+const SOUND_FILES = {
+  start:        "assets/sound/airhorn.mp3",         // 試合開始/再開
+  hit:          "assets/sound/bat_cheer.mp3",       // 球を打つ
+  pitch:        "assets/sound/pitch_throw.mp3",     // ピッチャーが投げる
+  runnerLoop:   "assets/sound/runner_dirt.mp3",     // 走者が走る (ループ)
+  baseReach:    "assets/sound/sliding.mp3",         // 走者が塁に到着
+  wallBounce:   "assets/sound/wall_bounce.mp3",     // ボールが壁に跳ね返る
+  ballDrop:     "assets/sound/ball_drop.mp3",       // ボールが落下 (Bound)
+  homerunLoop:  "assets/sound/stadium_buzz.mp3",    // ホームラン (ループ)
+  homerunCheer: "assets/sound/stadium_cheer.mp3",   // ホームラン (一回)
+  out:          "assets/sound/out_beep.mp3",        // アウト
+  strike:       "assets/sound/mitt_catch.mp3",      // ストライク
+  change:       "assets/sound/change_title.mp3",    // チェンジ
+  gameEnd:      "assets/sound/cheer_applause.mp3",  // 試合終了
+  score:        "assets/sound/score_up.mp3",        // 得点追加
+};
+
+const SOUND_VOLUMES = {
+  start: 0.7, hit: 0.85, pitch: 0.7,
+  runnerLoop: 0.45, baseReach: 0.8,
+  wallBounce: 0.6, ballDrop: 0.7,
+  homerunLoop: 0.65, homerunCheer: 0.85,
+  out: 0.7, strike: 0.8, change: 0.8,
+  gameEnd: 0.85, score: 0.8,
+};
+
+function playSfx(key) {
+  const src = SOUND_FILES[key];
+  if (!src) return;
+  try {
+    const a = new Audio(src);
+    a.volume = SOUND_VOLUMES[key] ?? 0.7;
+    const p = a.play();
+    if (p && typeof p.catch === "function") p.catch(() => {});
+  } catch (_) {}
 }
 
-// シュッ: ノイズのバンドパス + 周波数スイープ
-function playSoundWhoosh() {
-  const ctx = getAudioCtx();
-  const len = Math.floor(ctx.sampleRate * 0.22);
-  const buf = ctx.createBuffer(1, len, ctx.sampleRate);
-  const d = buf.getChannelData(0);
-  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+let _runnerLoopAudio = null;
+let _homerunLoopAudio = null;
 
-  const src = ctx.createBufferSource();
-  src.buffer = buf;
-
-  const filt = ctx.createBiquadFilter();
-  filt.type = "bandpass";
-  filt.frequency.setValueAtTime(3200, ctx.currentTime);
-  filt.frequency.exponentialRampToValueAtTime(400, ctx.currentTime + 0.18);
-  filt.Q.value = 1.2;
-
-  const gain = ctx.createGain();
-  gain.gain.setValueAtTime(0.55, ctx.currentTime);
-  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.22);
-
-  src.connect(filt);
-  filt.connect(gain);
-  gain.connect(ctx.destination);
-  src.start();
+function startRunnerLoop() {
+  if (_homerunLoopAudio) return; // ホームラン中は鳴らさない
+  if (_runnerLoopAudio) return;
+  try {
+    const a = new Audio(SOUND_FILES.runnerLoop);
+    a.loop = true;
+    a.volume = SOUND_VOLUMES.runnerLoop;
+    const p = a.play();
+    if (p && typeof p.catch === "function") p.catch(() => {});
+    _runnerLoopAudio = a;
+  } catch (_) {}
 }
 
-// カキン: ノイズ衝撃 + 金属的オシレーター
-function playSoundKakin() {
-  const ctx = getAudioCtx();
-  const t = ctx.currentTime;
-
-  // ノイズバースト
-  const nLen = Math.floor(ctx.sampleRate * 0.06);
-  const nBuf = ctx.createBuffer(1, nLen, ctx.sampleRate);
-  const nd = nBuf.getChannelData(0);
-  for (let i = 0; i < nLen; i++) nd[i] = Math.random() * 2 - 1;
-  const nSrc = ctx.createBufferSource();
-  nSrc.buffer = nBuf;
-  const nFilt = ctx.createBiquadFilter();
-  nFilt.type = "bandpass";
-  nFilt.frequency.value = 3000;
-  nFilt.Q.value = 2.5;
-  const nGain = ctx.createGain();
-  nGain.gain.setValueAtTime(1.4, t);
-  nGain.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
-  nSrc.connect(nFilt);
-  nFilt.connect(nGain);
-  nGain.connect(ctx.destination);
-  nSrc.start();
-
-  // 金属リング（2音）
-  [[1800, 0.45, 0.4], [2900, 0.28, 0.25]].forEach(([freq, vol, dur]) => {
-    const osc = ctx.createOscillator();
-    osc.type = "sine";
-    osc.frequency.setValueAtTime(freq, t);
-    osc.frequency.exponentialRampToValueAtTime(freq * 0.55, t + dur);
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(vol, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-    osc.connect(g);
-    g.connect(ctx.destination);
-    osc.start(t);
-    osc.stop(t + dur);
-  });
+function stopRunnerLoop() {
+  if (!_runnerLoopAudio) return;
+  try { _runnerLoopAudio.pause(); } catch (_) {}
+  _runnerLoopAudio = null;
 }
 
-// 歓声ノイズ (走者が走っている間ループ)
-let _crowdNodes = null;
-function startCrowdCheer() {
-  if (_crowdNodes) return;
-  const ctx = getAudioCtx();
-
-  // ピンクノイズ生成 (2秒バッファをループ)
-  const len = ctx.sampleRate * 2;
-  const buf = ctx.createBuffer(1, len, ctx.sampleRate);
-  const d = buf.getChannelData(0);
-  let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
-  for (let i = 0; i < len; i++) {
-    const w = Math.random() * 2 - 1;
-    b0 = 0.99886 * b0 + w * 0.0555179; b1 = 0.99332 * b1 + w * 0.0750759;
-    b2 = 0.96900 * b2 + w * 0.1538520; b3 = 0.86650 * b3 + w * 0.3104856;
-    b4 = 0.55000 * b4 + w * 0.5329522; b5 = -0.7616 * b5 - w * 0.0168980;
-    d[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362) * 0.11;
-    b6 = w * 0.115926;
-  }
-
-  const src = ctx.createBufferSource();
-  src.buffer = buf;
-  src.loop = true;
-
-  const filt = ctx.createBiquadFilter();
-  filt.type = "bandpass";
-  filt.frequency.value = 1000;
-  filt.Q.value = 0.6;
-
-  // LFO で群衆の波感を演出
-  const lfo = ctx.createOscillator();
-  lfo.frequency.value = 2.8;
-  const lfoGain = ctx.createGain();
-  lfoGain.gain.value = 0.25;
-  lfo.connect(lfoGain);
-
-  const master = ctx.createGain();
-  master.gain.setValueAtTime(0, ctx.currentTime);
-  master.gain.linearRampToValueAtTime(0.45, ctx.currentTime + 0.6);
-  lfoGain.connect(master.gain);
-
-  src.connect(filt);
-  filt.connect(master);
-  master.connect(ctx.destination);
-  lfo.start();
-  src.start();
-
-  _crowdNodes = { src, lfo, master };
+function startHomerunLoop() {
+  stopRunnerLoop();
+  if (_homerunLoopAudio) return;
+  playSfx("homerunCheer");
+  try {
+    const a = new Audio(SOUND_FILES.homerunLoop);
+    a.loop = true;
+    a.volume = SOUND_VOLUMES.homerunLoop;
+    const p = a.play();
+    if (p && typeof p.catch === "function") p.catch(() => {});
+    _homerunLoopAudio = a;
+  } catch (_) {}
 }
 
-function stopCrowdCheer() {
-  if (!_crowdNodes) return;
-  const ctx = getAudioCtx();
-  const { src, lfo, master, _extra: extra = [] } = _crowdNodes;
-  _crowdNodes = null;
-  master.gain.cancelScheduledValues(ctx.currentTime);
-  master.gain.setValueAtTime(master.gain.value, ctx.currentTime);
-  master.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.5);
-  setTimeout(() => {
-    try { src.stop(); lfo.stop(); } catch (_) {}
-    extra.forEach((n) => { try { n.stop(); } catch (_) {} });
-  }, 600);
+function stopHomerunLoop() {
+  if (!_homerunLoopAudio) return;
+  try { _homerunLoopAudio.pause(); } catch (_) {}
+  _homerunLoopAudio = null;
 }
 
-// ホームラン歓声: 通常より大きく・速いLFO・2層ノイズ＋オーという上昇ワウ
-function startHomeRunCheer() {
-  stopCrowdCheer();
-  const ctx = getAudioCtx();
-
-  // ピンクノイズ生成 (2秒バッファをループ)
-  const len = ctx.sampleRate * 2;
-  const buf = ctx.createBuffer(1, len, ctx.sampleRate);
-  const d = buf.getChannelData(0);
-  let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
-  for (let i = 0; i < len; i++) {
-    const w = Math.random() * 2 - 1;
-    b0 = 0.99886 * b0 + w * 0.0555179; b1 = 0.99332 * b1 + w * 0.0750759;
-    b2 = 0.96900 * b2 + w * 0.1538520; b3 = 0.86650 * b3 + w * 0.3104856;
-    b4 = 0.55000 * b4 + w * 0.5329522; b5 = -0.7616 * b5 - w * 0.0168980;
-    d[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362) * 0.11;
-    b6 = w * 0.115926;
-  }
-
-  // 低域層
-  const src1 = ctx.createBufferSource();
-  src1.buffer = buf; src1.loop = true;
-  const filt1 = ctx.createBiquadFilter();
-  filt1.type = "bandpass"; filt1.frequency.value = 900; filt1.Q.value = 0.5;
-
-  // 高域層（興奮感）
-  const src2 = ctx.createBufferSource();
-  src2.buffer = buf; src2.loop = true; src2.loopStart = 0.3;
-  const filt2 = ctx.createBiquadFilter();
-  filt2.type = "bandpass"; filt2.frequency.value = 2400; filt2.Q.value = 0.8;
-
-  // 速い LFO (5Hz) でざわめき感
-  const lfo = ctx.createOscillator();
-  lfo.frequency.value = 5;
-  const lfoGain = ctx.createGain();
-  lfoGain.gain.value = 0.38;
-  lfo.connect(lfoGain);
-
-  const master = ctx.createGain();
-  master.gain.setValueAtTime(0, ctx.currentTime);
-  master.gain.linearRampToValueAtTime(0.7, ctx.currentTime + 0.35);
-  lfoGain.connect(master.gain);
-
-  src1.connect(filt1); filt1.connect(master);
-  src2.connect(filt2); filt2.connect(master);
-  master.connect(ctx.destination);
-
-  // 打った瞬間の「オーッ」上昇感（短い上昇スイープ）
-  const sweep = ctx.createOscillator();
-  sweep.type = "sawtooth";
-  sweep.frequency.setValueAtTime(220, ctx.currentTime);
-  sweep.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.6);
-  const sweepGain = ctx.createGain();
-  sweepGain.gain.setValueAtTime(0.12, ctx.currentTime);
-  sweepGain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.6);
-  sweep.connect(sweepGain);
-  sweepGain.connect(ctx.destination);
-
-  lfo.start(); src1.start(); src2.start(); sweep.start();
-  sweep.stop(ctx.currentTime + 0.65);
-
-  _crowdNodes = { src: src1, lfo, master, _extra: [src2, sweep] };
-}
-
-// ポーン: 和音チャイム (C5-E5-G5)
-function playSoundChime() {
-  const ctx = getAudioCtx();
-  [523.25, 659.25, 783.99].forEach((freq, i) => {
-    const t = ctx.currentTime + i * 0.08;
-    const osc = ctx.createOscillator();
-    osc.type = "sine";
-    osc.frequency.value = freq;
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0, t);
-    g.gain.linearRampToValueAtTime(0.28, t + 0.012);
-    g.gain.exponentialRampToValueAtTime(0.001, t + 2.2);
-    osc.connect(g);
-    g.connect(ctx.destination);
-    osc.start(t);
-    osc.stop(t + 2.2);
-  });
-}
-
-// ストライク (見逃し): ボールがミットに収まる音
-function playSoundStrike() {
-  const ctx = getAudioCtx();
-  const t = ctx.currentTime;
-
-  // 低域ダンプ (ミット感)
-  const osc = ctx.createOscillator();
-  osc.type = "sine";
-  osc.frequency.setValueAtTime(280, t);
-  osc.frequency.exponentialRampToValueAtTime(70, t + 0.13);
-  const g = ctx.createGain();
-  g.gain.setValueAtTime(0.55, t);
-  g.gain.exponentialRampToValueAtTime(0.001, t + 0.13);
-  osc.connect(g);
-  g.connect(ctx.destination);
-  osc.start(t);
-  osc.stop(t + 0.13);
-
-  // ノイズ衝撃
-  const nLen = Math.floor(ctx.sampleRate * 0.05);
-  const nBuf = ctx.createBuffer(1, nLen, ctx.sampleRate);
-  const nd = nBuf.getChannelData(0);
-  for (let i = 0; i < nLen; i++) nd[i] = Math.random() * 2 - 1;
-  const nSrc = ctx.createBufferSource();
-  nSrc.buffer = nBuf;
-  const nFilt = ctx.createBiquadFilter();
-  nFilt.type = "bandpass";
-  nFilt.frequency.value = 700;
-  nFilt.Q.value = 1.2;
-  const nGain = ctx.createGain();
-  nGain.gain.setValueAtTime(0.8, t);
-  nGain.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
-  nSrc.connect(nFilt);
-  nFilt.connect(nGain);
-  nGain.connect(ctx.destination);
-  nSrc.start(t);
-}
-
-// 空振り: バットが空を切る音
-function playSoundSwingMiss() {
-  const ctx = getAudioCtx();
-  const len = Math.floor(ctx.sampleRate * 0.22);
-  const buf = ctx.createBuffer(1, len, ctx.sampleRate);
-  const d = buf.getChannelData(0);
-  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
-  const src = ctx.createBufferSource();
-  src.buffer = buf;
-  const filt = ctx.createBiquadFilter();
-  filt.type = "bandpass";
-  filt.frequency.setValueAtTime(1400, ctx.currentTime);
-  filt.frequency.exponentialRampToValueAtTime(350, ctx.currentTime + 0.18);
-  filt.Q.value = 0.9;
-  const gain = ctx.createGain();
-  gain.gain.setValueAtTime(0.5, ctx.currentTime);
-  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.22);
-  src.connect(filt);
-  filt.connect(gain);
-  gain.connect(ctx.destination);
-  src.start();
-}
-
-// ボール: 低く柔らかい音
-function playSoundBall() {
-  const ctx = getAudioCtx();
-  const t = ctx.currentTime;
-  const osc = ctx.createOscillator();
-  osc.type = "sine";
-  osc.frequency.setValueAtTime(160, t);
-  osc.frequency.exponentialRampToValueAtTime(55, t + 0.22);
-  const g = ctx.createGain();
-  g.gain.setValueAtTime(0.38, t);
-  g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
-  osc.connect(g);
-  g.connect(ctx.destination);
-  osc.start(t);
-  osc.stop(t + 0.22);
-}
-
+// 旧 WebAudio 合成は MP3 ベースに置き換え。互換のためのラッパー:
+function playSoundWhoosh()    { playSfx("pitch"); }
+function playSoundKakin()     { playSfx("hit"); }
+function playSoundChime()     { playSfx("change"); }
+function playSoundStrike()    { playSfx("strike"); }
+function playSoundSwingMiss() { playSfx("strike"); }
+function playSoundBall()      { /* 仕様により無音 */ }
+function startCrowdCheer()    { startRunnerLoop(); }
+function stopCrowdCheer()     { stopRunnerLoop(); stopHomerunLoop(); }
+function startHomeRunCheer()  { startHomerunLoop(); }
 // 起動: セーブデータがあれば自動再開、なければメニュー表示
 loadGameFromDB().then((saved) => {
   if (saved) {
@@ -3700,6 +3502,7 @@ loadGameFromDB().then((saved) => {
     elements.playingScreen.classList.remove("is-hidden");
     updatePlayingBasesDOM();
     restoreRunnersFromSave(saved.runners || []);
+    playSfx("start");
     showOverlay("PLAY BALL!", "", false);
     playingState.isRunning = false;
     elements.playingResetBtn.style.pointerEvents = "none";
