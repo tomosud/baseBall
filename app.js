@@ -516,7 +516,7 @@ const physics = {
   batContactRadius: 32,
   battingHitDragPerSecond: 1.1,
   battingStopSpeed: 18,
-  battingRestSpeed: 60,
+  battingRestSpeed: 90,
   battingEdgeBounceRestitution: 0.62,
   homeRunSpeedThreshold: 200,
   ballRadius: 7,
@@ -545,14 +545,14 @@ const physics = {
   walkAdvanceSpeed: 110,
   // 走者ブースト: バッター側の連打1回あたりの加速量（px/s）
   runnerBoostPerTap: 26,
-  // 走者ブーストの上限（px/s）
-  runnerBoostMax: 118,
+  // 走者ブーストの上限（px/s）: 基本62+上限64=最大126px/s
+  runnerBoostMax: 64,
   // 走者ブーストの減衰速度（px/s^2）
   runnerBoostDecayPerSecond: 55,
   // プレー終了後に次の投球を受け付けるまでのクールダウン（ms）
   playEndPitchCooldownMs: 900,
   // 深い打球（上壁到達）が静止後に拾えるようになるまでの遅延（秒）
-  deepHitPickupDelay: 0.9,
+  deepHitPickupDelay: 0.7,
   // 速度テールの長さ係数と最大長（px）
   ballTailLengthScale: 0.14,
   ballTailMaxLength: 110,
