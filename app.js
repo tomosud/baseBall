@@ -538,10 +538,14 @@ const physics = {
   hitBallCurveDecayRate: 1.5,
   // 打球カーブ適用の最小加速度閾値
   hitBallCurveThreshold: 0.5,
+  // 走者の基本速度（px/s）: タップしないと割と遅い
+  runnerBaseSpeed: 62,
+  // フォアボール自動進塁の速度（px/s）: タップ無効なので待たせないよう速め
+  walkAdvanceSpeed: 110,
   // 走者ブースト: バッター側の連打1回あたりの加速量（px/s）
   runnerBoostPerTap: 26,
   // 走者ブーストの上限（px/s）
-  runnerBoostMax: 84,
+  runnerBoostMax: 118,
   // 走者ブーストの減衰速度（px/s^2）
   runnerBoostDecayPerSecond: 55,
   // プレー終了後に次の投球を受け付けるまでのクールダウン（ms）
@@ -2541,7 +2545,11 @@ function updatePlayingRunners(dt) {
       continue;
     }
 
-    runner.progress += ((runner.speed + playingState.runnerBoost) * dt) / dist;
+    // フォアボール進塁はタップ無効のため速めの固定速度、それ以外は基本速度+連打ブースト
+    const moveSpeed = runner.fromWalk
+      ? physics.walkAdvanceSpeed
+      : physics.runnerBaseSpeed + playingState.runnerBoost;
+    runner.progress += (moveSpeed * dt) / dist;
 
     if (runner.progress >= 1) {
       runner.progress = 1;
