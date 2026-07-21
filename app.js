@@ -2866,7 +2866,7 @@ function resetPlayingState() {
   elements.playingBat.classList.remove("is-swinging", "is-hit");
   elements.playingBatHitAngle.classList.add("is-hidden");
   elements.playingBatReflectAngle.classList.add("is-hidden");
-  elements.playingBall.classList.remove("is-resting");
+  elements.playingBall.classList.remove("is-resting", "is-deep-delay");
   elements.playingContactMissMarker.classList.add("is-hidden");
   updateContactableBall(elements.playingBall, false);
   hidePlayingBall();
@@ -2898,6 +2898,7 @@ function launchPlayingBall(vector) {
   elements.playingBatReflectAngle.classList.add("is-hidden");
   elements.playingBall.classList.remove("is-resting");
   elements.playingBall.classList.remove("is-blue-hit");
+  elements.playingBall.classList.remove("is-deep-delay");
   updateContactableBall(elements.playingBall, false);
   showPlayingBall();
   updatePlayingCall("SWING!");
@@ -3106,8 +3107,10 @@ function animatePlaying(timeStamp) {
       // 深い打球は静止後すぐには拾えない（野手が外野まで取りに行く時間）
       if (playingState.isDeepHit && playingState.restDelayElapsed < physics.deepHitPickupDelay) {
         playingState.restDelayElapsed += dt;
+        elements.playingBall.classList.add("is-deep-delay");
       } else {
         playingState.isResting = true;
+        elements.playingBall.classList.remove("is-deep-delay");
         elements.playingBall.classList.add("is-resting");
       }
     }
@@ -3267,7 +3270,7 @@ function beginPlayingPointer(event) {
       playingState.pickupY = point.y;
       playingState.isDeepHit = false;
       playingState.restDelayElapsed = 0;
-      elements.playingBall.classList.remove("is-resting");
+      elements.playingBall.classList.remove("is-resting", "is-deep-delay");
       hidePlayingBall();
     }
 

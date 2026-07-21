@@ -387,6 +387,20 @@ button {
   box-shadow: 0 0 14px rgba(79, 195, 247, 0.85);
 }
 
+/* 深い打球の遅延中: 拾えるようになるまでブルブル震える */
+@keyframes deep-delay-shake {
+  0%   { left: -2px; top: 0; }
+  25%  { left: 2px;  top: 1px; }
+  50%  { left: -1px; top: -2px; }
+  75%  { left: 2px;  top: 2px; }
+  100% { left: -2px; top: 0; }
+}
+
+.batting-ball.is-deep-delay {
+  animation: deep-delay-shake 0.09s linear infinite;
+  box-shadow: 0 0 14px rgba(255, 214, 120, 0.9);
+}
+
 /* 打球・送球の速度テール（速いほど尻尾が伸びる） */
 .playing-ball-tail {
   position: absolute;
