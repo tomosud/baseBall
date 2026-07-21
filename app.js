@@ -206,6 +206,7 @@ const elements = {
   playingBall: document.getElementById("playingBall"),
   playingBallTail: document.getElementById("playingBallTail"),
   runnerBoostArea: document.getElementById("runnerBoostArea"),
+  runnerBoostGaugeFill: document.getElementById("runnerBoostGaugeFill"),
   playingContactMissMarker: document.getElementById("playingContactMissMarker"),
   playingBatHitAngle: document.getElementById("playingBatHitAngle"),
   playingBatReflectAngle: document.getElementById("playingBatReflectAngle"),
@@ -2466,12 +2467,28 @@ function spawnRunnerOnHit() {
   saveGameToDB();
 }
 
-function applyRunnerBoostTap() {
+function applyRunnerBoostTap(tapX, tapY) {
   if (!hasActiveRunners()) return;
   playingState.runnerBoost = Math.min(
     physics.runnerBoostMax,
     playingState.runnerBoost + physics.runnerBoostPerTap,
   );
+  if (tapX !== undefined) spawnBoostRipple(tapX, tapY);
+}
+
+// 連打タップ位置に波紋を出す（アニメーション終了後に自動削除）
+function spawnBoostRipple(x, y) {
+  const ripple = document.createElement("div");
+  ripple.className = "boost-tap-ripple";
+  ripple.style.left = `${x}px`;
+  ripple.style.top = `${y}px`;
+  elements.playingSurface.appendChild(ripple);
+  setTimeout(() => ripple.remove(), 500);
+}
+
+function updateRunnerBoostGauge() {
+  elements.runnerBoostGaugeFill.style.width =
+    `${(playingState.runnerBoost / physics.runnerBoostMax) * 100}%`;
 }
 
 function updatePlayingRunners(dt) {
@@ -2486,6 +2503,7 @@ function updatePlayingRunners(dt) {
       playingState.runnerBoost - physics.runnerBoostDecayPerSecond * dt,
     );
   }
+  updateRunnerBoostGauge();
 
   for (const runner of playingState.runners) {
     if (runner.state === "out" || runner.state === "scored") continue;
@@ -2575,7 +2593,7 @@ function renderPlayingRunners() {
   // 全て非表示・色クリア
   runnerEls.forEach((el) => {
     el.classList.add("is-hidden");
-    el.classList.remove("color-0", "color-1", "color-2");
+    el.classList.remove("color-0", "color-1", "color-2", "is-boosted");
   });
 
   playingState.runners.forEach((runner, i) => {
@@ -2585,6 +2603,11 @@ function renderPlayingRunners() {
     const el = runnerEls[i];
     el.classList.remove("is-hidden");
     el.classList.add(runner.colorClass);
+    // 連打ブースト中の走者にオーラを付ける（フォアボール進塁は対象外）
+    el.classList.toggle(
+      "is-boosted",
+      runner.state === "running" && !runner.fromWalk && playingState.runnerBoost > 30,
+    );
 
     // 方向: 走っているなら目標塁/ホームへ、セーフなら次の方向を向く
     let dx, dy;
@@ -3290,7 +3313,7 @@ function beginPlayingPointer(event) {
     // ボールから離れたタップは、バッター側（下半分）なら走者ブーストとして扱う。
     if (!nearBall && playingState.inPlay) {
       const rect = elements.playingSurface.getBoundingClientRect();
-      if (point.y >= rect.height * 0.5) applyRunnerBoostTap();
+      if (point.y >= rect.height * 0.5) applyRunnerBoostTap(point.x, point.y);
       return;
     }
 
