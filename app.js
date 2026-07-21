@@ -205,6 +205,7 @@ const elements = {
   playingDebugSwingGate: document.getElementById("playingDebugSwingGate"),
   playingBall: document.getElementById("playingBall"),
   playingBallTail: document.getElementById("playingBallTail"),
+  runnerBoostArea: document.getElementById("runnerBoostArea"),
   playingContactMissMarker: document.getElementById("playingContactMissMarker"),
   playingBatHitAngle: document.getElementById("playingBatHitAngle"),
   playingBatReflectAngle: document.getElementById("playingBatReflectAngle"),
@@ -3199,6 +3200,9 @@ function hasActiveRunners() {
 function updatePlayingMode() {
   const running = hasActiveRunners();
   const wasRunnerMode = !elements.playingRunLabel.classList.contains("is-hidden");
+  // 走者ブーストのタップエリア表示: ブーストが効く状況（インプレー中の走者あり）のみ
+  // フォアボール進塁（inPlay=false）ではタップが無効なので表示しない
+  elements.runnerBoostArea.classList.toggle("is-hidden", !(running && playingState.inPlay));
   if (running) {
     if (!wasRunnerMode) {
       // 走者モード突入時のみUI切替
