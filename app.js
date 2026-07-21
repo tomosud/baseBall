@@ -3638,3 +3638,31 @@ loadGameFromDB().then((saved) => {
     updateStatusBar();
   }
 });
+
+// ===== キャッシュ対策: index.html の更新チェック =====
+// styles.css / app.js は index.html 側で ?v=Date.now() を付けて常に最新を取得するが、
+// index.html 自体は静的ホスティング（GitHub Pages 等）のキャッシュで古いまま残ることがある。
+// 起動時に HEAD リクエストで配信中の Last-Modified を確認し、
+// 今表示している HTML より新しければ一度だけリロードして最新に揃える。
+async function checkForNewerHtml() {
+  try {
+    const res = await fetch(window.location.href, { method: "HEAD", cache: "no-store" });
+    if (!res.ok) return;
+    const remote = res.headers.get("last-modified");
+    if (!remote) return;
+    const remoteTime = new Date(remote).getTime();
+    const localTime = new Date(document.lastModified).getTime();
+    if (!Number.isFinite(remoteTime) || !Number.isFinite(localTime)) return;
+    // 60秒以上新しい HTML が配信されている場合のみ対象（時計ズレの誤検知を防ぐ）
+    if (remoteTime <= localTime + 60000) return;
+    // リロードループ防止: 直近60秒以内にリロード済みなら何もしない
+    const key = "htmlReloadAt";
+    const lastReload = Number(sessionStorage.getItem(key) || 0);
+    if (Date.now() - lastReload < 60000) return;
+    sessionStorage.setItem(key, String(Date.now()));
+    window.location.reload();
+  } catch (_) {
+    // file:// 直開きやオフライン時は何もしない
+  }
+}
+checkForNewerHtml();
