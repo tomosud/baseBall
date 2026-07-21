@@ -137,6 +137,13 @@ const playingState = {
   nextPitchReadyAt: 0,
   // runners
   runners: [],
+  // インプレー状態: 打球発生〜全走者 settle まで true（通常投球を禁止する区切り）
+  inPlay: false,
+  // 走者ブースト: バッター側連打で加算され、時間で減衰する追加速度（px/s）
+  runnerBoost: 0,
+  // 深い打球（上壁到達）: 静止後も deepHitPickupDelay 経過まで拾えない
+  isDeepHit: false,
+  restDelayElapsed: 0,
   // fielder throw state
   isFielderThrow: false,
   wasPickedUp: false,
@@ -197,6 +204,7 @@ const elements = {
   playingDebugBallSpeed: document.getElementById("playingDebugBallSpeed"),
   playingDebugSwingGate: document.getElementById("playingDebugSwingGate"),
   playingBall: document.getElementById("playingBall"),
+  playingBallTail: document.getElementById("playingBallTail"),
   playingContactMissMarker: document.getElementById("playingContactMissMarker"),
   playingBatHitAngle: document.getElementById("playingBatHitAngle"),
   playingBatReflectAngle: document.getElementById("playingBatReflectAngle"),
@@ -475,7 +483,7 @@ const physics = {
   dragPerSecond: 1.2,
   sideDragPerSecond: 2.4,
   minForwardSpeed: 180,
-  maxForwardSpeed: 980,
+  maxForwardSpeed: 840,
   maxSideSpeed: 240,
   bounceForwardLoss: 0.72,
   bounceForwardBoost: 90,
@@ -503,7 +511,7 @@ const physics = {
   battingContactTopAllowance: 4,
   battingSwingThreshold: 350,
   battingSwingDuration: 0.055,
-  batContactRadius: 28,
+  batContactRadius: 32,
   battingHitDragPerSecond: 1.1,
   battingStopSpeed: 18,
   battingRestSpeed: 60,
@@ -524,11 +532,25 @@ const physics = {
   // スイング角度のアナログばらつき（ラジアン）
   battingSwingAngleVariation: 0.05,
   // スイング後の接触猶予時間（秒）
-  battingSwingLingerDuration: 0.03,
+  battingSwingLingerDuration: 0.05,
   // 打球カーブ継承時の減衰レート（1/秒）
   hitBallCurveDecayRate: 1.5,
   // 打球カーブ適用の最小加速度閾値
   hitBallCurveThreshold: 0.5,
+  // 走者ブースト: バッター側の連打1回あたりの加速量（px/s）
+  runnerBoostPerTap: 26,
+  // 走者ブーストの上限（px/s）
+  runnerBoostMax: 84,
+  // 走者ブーストの減衰速度（px/s^2）
+  runnerBoostDecayPerSecond: 55,
+  // プレー終了後に次の投球を受け付けるまでのクールダウン（ms）
+  playEndPitchCooldownMs: 900,
+  // 深い打球（上壁到達）が静止後に拾えるようになるまでの遅延（秒）
+  deepHitPickupDelay: 0.9,
+  // 速度テールの長さ係数と最大長（px）
+  ballTailLengthScale: 0.14,
+  ballTailMaxLength: 110,
+  ballTailMinSpeed: 140,
 };
 
 function updateHeightDebug() {
@@ -2145,7 +2167,31 @@ function showPlayingBall() {
 
 function hidePlayingBall() {
   elements.playingBall.classList.add("is-hidden");
+  elements.playingBallTail.classList.add("is-hidden");
   updateContactableBall(elements.playingBall, false);
+}
+
+// 打球・送球の速度を尻尾（テール）で表現する。速いほど長い。
+function updatePlayingBallTail() {
+  const el = elements.playingBallTail;
+  const show =
+    playingState.isBallActive &&
+    (playingState.isHit || playingState.isFielderThrow) &&
+    playingState.currentSpeed >= physics.ballTailMinSpeed;
+  if (!show) {
+    el.classList.add("is-hidden");
+    return;
+  }
+  const length = Math.min(
+    physics.ballTailMaxLength,
+    (playingState.currentSpeed - physics.ballTailMinSpeed) * physics.ballTailLengthScale + 12,
+  );
+  // テールは進行方向の逆側へ伸ばす
+  const angle = Math.atan2(-playingState.velocityY, -playingState.velocityX);
+  el.style.width = `${length}px`;
+  el.style.transform = `translate(${playingState.ballX}px, ${playingState.ballY}px) rotate(${angle}rad)`;
+  el.classList.toggle("is-blue", elements.playingBall.classList.contains("is-blue-hit"));
+  el.classList.remove("is-hidden");
 }
 
 function stopPlayingAnimation() {
@@ -2408,9 +2454,19 @@ function spawnRunnerOnHit() {
     route: [],
   });
 
+  playingState.inPlay = true;
+  playingState.runnerBoost = 0;
   elements.playingRunLabel.textContent = "RUN！RUN！RUN！";
   renderPlayingRunners();
   saveGameToDB();
+}
+
+function applyRunnerBoostTap() {
+  if (!hasActiveRunners()) return;
+  playingState.runnerBoost = Math.min(
+    physics.runnerBoostMax,
+    playingState.runnerBoost + physics.runnerBoostPerTap,
+  );
 }
 
 function updatePlayingRunners(dt) {
@@ -2418,6 +2474,13 @@ function updatePlayingRunners(dt) {
   const bases = getPlayingBasePositions(rect);
   const home = getPlayingHomePlate(rect);
   let runnersSettled = false;
+
+  if (playingState.runnerBoost > 0) {
+    playingState.runnerBoost = Math.max(
+      0,
+      playingState.runnerBoost - physics.runnerBoostDecayPerSecond * dt,
+    );
+  }
 
   for (const runner of playingState.runners) {
     if (runner.state === "out" || runner.state === "scored") continue;
@@ -2477,7 +2540,7 @@ function updatePlayingRunners(dt) {
       continue;
     }
 
-    runner.progress += (runner.speed * dt) / dist;
+    runner.progress += ((runner.speed + playingState.runnerBoost) * dt) / dist;
 
     if (runner.progress >= 1) {
       runner.progress = 1;
@@ -2551,8 +2614,8 @@ function updatePlayingThrowTargets() {
   });
 }
 
-// 送球アウト判定の当たり半径（視覚インジケーターのアニメーション最大スケールに合わせて全塁統一）
-const PLAYING_BASE_HIT_RADIUS = 34;
+// 送球アウト判定の当たり半径（全塁統一。大きいほどアウトを取りやすい）
+const PLAYING_BASE_HIT_RADIUS = 30;
 
 // アウト処理の共通ロジック（checkPlayingBallHitsBases / checkBallAtThrowTargetOnPickup / advanceToNextInRoute から呼ばれる）
 function applyBaseOut(outRunner, baseEl) {
@@ -2712,6 +2775,10 @@ function applyPlayingEdgeBounce(rect) {
       model.velocityY *= -physics.battingEdgeBounceRestitution;
       model.velocityX *= physics.battingEdgeBounceRestitution;
       playSfx("wallBounce");
+      // 上壁まで届いた打球は「深い打球」: 静止後もしばらく拾えない（外野の再現）
+      if (model.isHit) {
+        playingState.isDeepHit = true;
+      }
     }
   } else if (model.ballY >= rect.height - margin && model.velocityY > 0) {
     model.ballY = rect.height - margin;
@@ -2792,6 +2859,10 @@ function resetPlayingState() {
   playingState.lastTick = 0;
   playingState.nextPitchReadyAt = 0;
   playingState.runners = [];
+  playingState.inPlay = false;
+  playingState.runnerBoost = 0;
+  playingState.isDeepHit = false;
+  playingState.restDelayElapsed = 0;
   elements.playingBat.classList.remove("is-swinging", "is-hit");
   elements.playingBatHitAngle.classList.add("is-hidden");
   elements.playingBatReflectAngle.classList.add("is-hidden");
@@ -2820,6 +2891,8 @@ function launchPlayingBall(vector) {
   playingState.isHomeRun = false;
   playingState.isPitched = true;
   playingState.pitchJudged = false;
+  playingState.isDeepHit = false;
+  playingState.restDelayElapsed = 0;
   elements.playingBat.classList.remove("is-hit");
   elements.playingBatHitAngle.classList.add("is-hidden");
   elements.playingBatReflectAngle.classList.add("is-hidden");
@@ -2848,6 +2921,8 @@ function finishPlayingPitch(message = "READY") {
   playingState.pickupY = 0;
   playingState.isFielderThrow = false;
   playingState.isResting = false;
+  playingState.isDeepHit = false;
+  playingState.restDelayElapsed = 0;
 }
 
 function animatePlaying(timeStamp) {
@@ -2988,6 +3063,8 @@ function animatePlaying(timeStamp) {
       elements.playingBall.classList.remove("is-blue-hit");
     }
 
+    updatePlayingBallTail();
+
     // バットとの接触判定
     if (
       (playingState.isSwinging || playingState.swingLingerTimer > 0) &&
@@ -3026,8 +3103,13 @@ function animatePlaying(timeStamp) {
     // 休止状態（赤くなる）: 1回目ピックアップ後は閾値2倍で拾いやすく
     const effectiveRestSpeed = physics.battingRestSpeed * (playingState.wasPickedUp ? 2 : 1);
     if ((playingState.isHit || playingState.isFielderThrow) && !playingState.isResting && playingState.currentSpeed <= effectiveRestSpeed) {
-      playingState.isResting = true;
-      elements.playingBall.classList.add("is-resting");
+      // 深い打球は静止後すぐには拾えない（野手が外野まで取りに行く時間）
+      if (playingState.isDeepHit && playingState.restDelayElapsed < physics.deepHitPickupDelay) {
+        playingState.restDelayElapsed += dt;
+      } else {
+        playingState.isResting = true;
+        elements.playingBall.classList.add("is-resting");
+      }
     }
 
     const isOutside =
@@ -3043,7 +3125,9 @@ function animatePlaying(timeStamp) {
       playingState.flightElapsed > 0.35 &&
       playingState.height <= 0 &&
       playingState.currentSpeed <= physics.rollStopSpeed;
-    const isStopped = (playingState.isHit || playingState.isFielderThrow) && playingState.currentSpeed <= physics.battingStopSpeed;
+    // isResting を条件に含めることで、深い打球の遅延中に isBallActive が落ちて
+    // 遅延カウントが止まる（＝永久に拾えなくなる）ことを防ぐ
+    const isStopped = (playingState.isHit || playingState.isFielderThrow) && playingState.currentSpeed <= physics.battingStopSpeed && playingState.isResting;
 
     if (isStopped) {
       // 完全停止: ピッチャーが拾えるように isPitched を false に
@@ -3052,7 +3136,8 @@ function animatePlaying(timeStamp) {
       playingState.pitchJudged = false;
       playingState.swingMissed = false;
     } else if (isRollStopped || isFlightStuck || isOutside) {
-      if (!playingState.pitchJudged) {
+      // フィールダー送球は投球ではないためボールカウントに影響させない
+      if (!playingState.pitchJudged && !playingState.isFielderThrow) {
         playingState.pitchJudged = true;
         updatePlayingCall("BALL", "is-ball");
         playSoundBall(); gameProcessBall();
@@ -3139,6 +3224,10 @@ function updatePlayingMode() {
       playingState.pickupY = 0;
       // ホームラン状態をクリア（全走者得点後に次の投球を許可）
       playingState.isHomeRun = false;
+      // プレー終了の区切り: インプレー解除 + 次の投球までクールダウン
+      playingState.inPlay = false;
+      playingState.runnerBoost = 0;
+      playingState.nextPitchReadyAt = performance.now() + physics.playEndPitchCooldownMs;
     }
   }
 }
@@ -3164,8 +3253,8 @@ function beginPlayingPointer(event) {
       (playingState.isHit || playingState.isFielderThrow) && playingState.isResting;
     const nearBall = ballOnField &&
       Math.hypot(point.x - playingState.ballX, point.y - playingState.ballY) <= 36;
-    playingState.isFielderThrow = nearBall;
     if (nearBall) {
+      playingState.isFielderThrow = true;
       if (checkBallAtThrowTargetOnPickup()) return;
       playingState.isBallActive = false;
       playingState.isHit = false;
@@ -3176,8 +3265,18 @@ function beginPlayingPointer(event) {
       playingState.wasPickedUp = true;
       playingState.pickupX = point.x;
       playingState.pickupY = point.y;
+      playingState.isDeepHit = false;
+      playingState.restDelayElapsed = 0;
       elements.playingBall.classList.remove("is-resting");
       hidePlayingBall();
+    }
+
+    // インプレー中はピックアップ以外で投球を開始できない（区切り）。
+    // ボールから離れたタップは、バッター側（下半分）なら走者ブーストとして扱う。
+    if (!nearBall && playingState.inPlay) {
+      const rect = elements.playingSurface.getBoundingClientRect();
+      if (point.y >= rect.height * 0.5) applyRunnerBoostTap();
+      return;
     }
 
     if (playingState.isPitched) return; // まだ飛行中
@@ -3187,11 +3286,15 @@ function beginPlayingPointer(event) {
     const isWalkInProgress = playingState.runners.some((r) => r.state === "running" && r.fromWalk);
     if (!nearBall && (isWalkInProgress || playingState.isHomeRun)) return;
 
+    // プレー終了直後のクールダウン中は次の投球を受け付けない（区切り）
+    if (!nearBall && performance.now() < playingState.nextPitchReadyAt) return;
+
     // 通常投球開始時（ピックアップなし）はフィールダーピックアップ状態をクリア
     if (!nearBall) {
       playingState.wasPickedUp = false;
       playingState.pickupX = 0;
       playingState.pickupY = 0;
+      playingState.isFielderThrow = false;
     }
 
     // 通常のピッチ開始（またはピックアップ直後のフィールダースロー開始）

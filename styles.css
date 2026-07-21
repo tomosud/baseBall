@@ -387,6 +387,23 @@ button {
   box-shadow: 0 0 14px rgba(79, 195, 247, 0.85);
 }
 
+/* 打球・送球の速度テール（速いほど尻尾が伸びる） */
+.playing-ball-tail {
+  position: absolute;
+  top: -3px;
+  left: 0;
+  height: 6px;
+  border-radius: 3px;
+  transform-origin: 0 50%;
+  background: linear-gradient(90deg, rgba(255, 214, 120, 0.85), rgba(255, 214, 120, 0));
+  pointer-events: none;
+  will-change: transform, width;
+}
+
+.playing-ball-tail.is-blue {
+  background: linear-gradient(90deg, rgba(79, 195, 247, 0.9), rgba(79, 195, 247, 0));
+}
+
 .ball.is-bounced {
   background: #ff3b30;
   width: 20px;
