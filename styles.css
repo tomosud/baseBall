@@ -441,6 +441,26 @@ button {
   transition: width 0.08s linear;
 }
 
+/* 芯で捉えたときのポップ表示 */
+.sweet-spot-pop {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #ffd60a;
+  text-shadow: 0 0 10px rgba(255, 159, 10, 0.9);
+  pointer-events: none;
+  z-index: 5;
+  animation: sweet-spot-pop 0.75s ease-out forwards;
+}
+
+@keyframes sweet-spot-pop {
+  0%   { transform: translate(-50%, -100%) scale(0.5); opacity: 0; }
+  20%  { transform: translate(-50%, -130%) scale(1.35); opacity: 1; }
+  100% { transform: translate(-50%, -230%) scale(1); opacity: 0; }
+}
+
 /* 連打タップの波紋 */
 .boost-tap-ripple {
   position: absolute;

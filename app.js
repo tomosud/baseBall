@@ -1073,11 +1073,14 @@ function reflectBallFromBatModel(model, options) {
     ? clamp(Math.abs(incomingDot) / incomingMag, 0.3, 1)
     : 0.6;
 
+  // 当たりの質（芯度×スクエア度）。芯フィードバック表示用に保存する。
+  model.lastHitQuality = sweetSpot * (0.6 + 0.4 * squareness);
+
   // 横方向は sign に潰さず、反射ベクトルとスイング寄与を連続値としてブレンドする。
-  // バット角度やスイング方向のわずかなズレが、そのまま打球の角度に反映される（アナログ感）。
-  // 真っすぐ・スクエアに当てれば自然と正面（投手方向）へ飛ぶ。
-  const blendX = reflectedX * 0.45 + contactDirection.x * impulse * 0.55;
-  const blendY = reflectedY * 0.45 + contactDirection.y * impulse * 0.55;
+  // 反射（バット角度）の比重を上げることで、バットの構え角度と当てる位置による
+  // 引っ張り/流しの意図的な打ち分けを効かせる（スイング方向は補正程度）。
+  const blendX = reflectedX * 0.6 + contactDirection.x * impulse * 0.4;
+  const blendY = reflectedY * 0.6 + contactDirection.y * impulse * 0.4;
 
   // 上下バイアス。impulse スケールに乗せて、速度感と弾道の一貫性を保つ。
   // Y軸は画面下方向が正なので、上方向に飛ばすにはマイナスに倒す。
@@ -2373,10 +2376,15 @@ function advanceRunnersOnWalk() {
 
 function getPlayingBasePositions(rect) {
   const topWallY = getPlayingTopWallY();
+  // 塁は壁から離して内側に置く:
+  // - 1塁/3塁を側壁から離すことで、壁際に静止した打球が塁の当たり半径に重なる
+  //   「壁アシストのタダ取りアウト」を防ぐ
+  // - 2塁を上壁から離すことで、深い打球（上壁到達）が2塁のすぐ横に止まって
+  //   ピックアップ即アウトになる事故を防ぎ、外野リング（塁の外側の空間）を作る
   return [
-    { x: rect.width * 0.94, y: rect.height * 0.47 }, // 1塁（右端）
-    { x: rect.width * 0.50, y: topWallY + 34 }, // 2塁（上壁近く中央）
-    { x: rect.width * 0.06, y: rect.height * 0.47 }, // 3塁（左端）
+    { x: rect.width * 0.86, y: rect.height * 0.47 }, // 1塁（右・内側）
+    { x: rect.width * 0.50, y: topWallY + 76 },      // 2塁（上壁から距離を取る）
+    { x: rect.width * 0.14, y: rect.height * 0.47 }, // 3塁（左・内側）
   ];
 }
 
@@ -2758,9 +2766,23 @@ function reflectPlayingBallFromBat() {
     missMarkerElement: elements.playingContactMissMarker,
     updateCall: updatePlayingCall,
   });
+  // 芯で捉えたら「芯!!」ポップを出す（狙って上達できるように当たりの質を可視化）
+  if (playingState.lastHitQuality >= 0.85) {
+    spawnSweetSpotPop(playingState.ballX, playingState.ballY);
+  }
   playingState.swingMissed = false; // ヒットしたので空振り記録をクリア
   spawnRunnerOnHit();
   resetAtBat();
+}
+
+function spawnSweetSpotPop(x, y) {
+  const pop = document.createElement("div");
+  pop.className = "sweet-spot-pop";
+  pop.textContent = "芯!!";
+  pop.style.left = `${x}px`;
+  pop.style.top = `${y}px`;
+  elements.playingSurface.appendChild(pop);
+  setTimeout(() => pop.remove(), 800);
 }
 
 function applyPlayingBounce() {
