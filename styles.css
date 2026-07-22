@@ -441,6 +441,63 @@ button {
   transition: width 0.08s linear;
 }
 
+/* コーナー二塁打ゾーン: 上壁沿い左右コーナーの薄い破線囲い */
+.corner-zone {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 54px);
+  width: 20%;
+  height: 70px;
+  border: 1.5px dashed rgba(79, 195, 247, 0.28);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.corner-zone-left {
+  left: 0;
+  border-left: none;
+  border-top: none;
+  border-bottom-right-radius: 26px;
+}
+
+.corner-zone-right {
+  right: 0;
+  border-right: none;
+  border-top: none;
+  border-bottom-left-radius: 26px;
+}
+
+/* 守備シフトマーカー（ピッチャー側がドラッグで配置） */
+.fielder-marker {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 30px;
+  height: 30px;
+  margin: -15px 0 0 -15px;
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  pointer-events: none; /* タッチは surface 側で処理する */
+  z-index: 2;
+}
+
+.fielder-marker::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.65);
+}
+
+.fielder-marker.is-catching {
+  border-color: #ffd60a;
+  box-shadow: 0 0 16px rgba(255, 214, 10, 0.9);
+}
+
 /* 芯で捉えたときのポップ表示 */
 .sweet-spot-pop {
   position: absolute;
