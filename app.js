@@ -544,7 +544,8 @@ const physics = {
   // フォアボール自動進塁の速度（px/s）: タップ無効なので待たせないよう速め
   walkAdvanceSpeed: 110,
   // 走者ブースト: バッター側の連打1回あたりの加速量（px/s）
-  runnerBoostPerTap: 26,
+  // 上限64に対して1タップ15 → 満タンに4〜5連打、維持に秒3.5回程度の本当の連打が必要
+  runnerBoostPerTap: 15,
   // 走者ブーストの上限（px/s）: 基本62+上限64=最大126px/s
   runnerBoostMax: 64,
   // 走者ブーストの減衰速度（px/s^2）
@@ -3133,8 +3134,10 @@ function animatePlaying(timeStamp) {
       }
     }
 
-    // 休止状態（赤くなる）: 1回目ピックアップ後は閾値2倍で拾いやすく
-    const effectiveRestSpeed = physics.battingRestSpeed * (playingState.wasPickedUp ? 2 : 1);
+    // 休止状態（赤くなる）
+    // 以前はピックアップ後に閾値2倍としていたが、battingRestSpeed 90 では再ピックアップが
+    // 速すぎて連続アウト（併殺）が簡単になりすぎるため倍率を廃止
+    const effectiveRestSpeed = physics.battingRestSpeed;
     if ((playingState.isHit || playingState.isFielderThrow) && !playingState.isResting && playingState.currentSpeed <= effectiveRestSpeed) {
       // 深い打球は静止後すぐには拾えない（野手が外野まで取りに行く時間）
       if (playingState.isDeepHit && playingState.restDelayElapsed < physics.deepHitPickupDelay) {
