@@ -237,6 +237,11 @@ const elements = {
   playingRunner1: document.getElementById("playingRunner1"),
   playingRunner2: document.getElementById("playingRunner2"),
   playingRunner3: document.getElementById("playingRunner3"),
+  playingRunnerRing0: document.getElementById("playingRunnerRing0"),
+  playingRunnerRing1: document.getElementById("playingRunnerRing1"),
+  playingRunnerRing2: document.getElementById("playingRunnerRing2"),
+  playingRunnerRing3: document.getElementById("playingRunnerRing3"),
+  playingTagLabel: document.getElementById("playingTagLabel"),
   // game UI
   playingStatusBar: document.getElementById("playingStatusBar"),
   statusScoreBlue: document.getElementById("statusScoreBlue"),
@@ -2712,24 +2717,7 @@ function updatePlayingRunners(dt) {
       runner.y = target.y;
       playSfx("baseReach");
 
-      // 生きた送球が静止している塁にランナーが到達した場合はアウト
-      // （isBallActive=false で checkPlayingBallHitsBases が動かない状態をカバー）
-      if (
-        !runner.fromWalk &&
-        !playingState.isHit &&
-        playingState.isFielderThrow &&
-        playingState.throwIsLive &&
-        playingState.isResting &&
-        !playingState.isBallActive
-      ) {
-        const ballDist = Math.hypot(playingState.ballX - target.x, playingState.ballY - target.y);
-        if (ballDist <= getBaseOutRadius(runner.toBaseIndex, bases.length, true)) {
-          const baseElArr = [elements.playingBase0, elements.playingBase1, elements.playingBase2];
-          const baseEl = runner.toBaseIndex < bases.length ? baseElArr[runner.toBaseIndex] : elements.playingHomeBase;
-          applyBaseOut(runner, baseEl);
-          return;
-        }
-      }
+      // アウトは走者に当てたときだけ成立する。塁に到達しただけでは何も起きない。
 
       if (runner.route && runner.route.length > 0) {
         // まだ次の塁がある → 続けて走る
@@ -2825,49 +2813,46 @@ function renderPlayingRunners() {
   if (hasActiveRunners()) { startCrowdCheer(); } else { stopCrowdCheer(); }
 }
 
+// 送球の的は塁ではなく走者。狙える走者に赤い点滅とリングを付ける。
 function updatePlayingThrowTargets() {
-  const targetEls = [elements.playingBase0, elements.playingBase1, elements.playingBase2, elements.playingHomeBase];
-  const targetIndexes = new Set(
-    playingState.runners
-      .filter((runner) => runner.state === "running")
-      .map((runner) => runner.toBaseIndex),
-  );
+  const ringEls = [elements.playingRunnerRing0, elements.playingRunnerRing1,
+                   elements.playingRunnerRing2, elements.playingRunnerRing3];
+  const runnerEls = [elements.playingRunner0, elements.playingRunner1,
+                     elements.playingRunner2, elements.playingRunner3];
 
-  targetEls.forEach((el, index) => {
-    el.classList.toggle("is-throw-target", targetIndexes.has(index));
+  runnerEls.forEach((el, index) => {
+    const runner = playingState.runners[index];
+    const taggable = !!runner && runner.state === "running" && !runner.fromWalk;
+    el.classList.toggle("is-target", taggable);
+
+    const ring = ringEls[index];
+    ring.classList.toggle("is-hidden", !taggable);
+    if (taggable) {
+      ring.style.left = `${runner.x}px`;
+      ring.style.top = `${runner.y}px`;
+    }
   });
 }
 
-// 送球アウト判定の当たり半径。
-// 1〜3塁は周囲の円をやめて塁自体を点滅させる表示に変えたので、判定も塁そのものの
-// 大きさに寄せて絞る（塁は18px角＝対角の半分12.7px）。狙って当てる必要がある。
-// ホーム（点が入る最後の塁）だけは周囲の円ごと従来の広さを維持する。
-const PLAYING_BASE_HIT_RADIUS = 20;
-const PLAYING_HOME_HIT_RADIUS = 30;
-// 「送球していないのに成立するアウト」用の半径。
-// - 塁の上に転がって止まったボールを拾っただけ
-// - 止まっているボールの側へ走者が飛び込んだだけ
-// これらは守備側の操作を伴わないタダ取りアウトなので、判定を絞って走者を守る。
-const PLAYING_BASE_STATIC_OUT_RADIUS = 14;
-const PLAYING_HOME_STATIC_OUT_RADIUS = 18;
+// 走者に当てる判定の半径（走者スプライトは34x20px）。
+// アウトはこの判定のみで成立する。塁に送球しても何も起きない。
+const PLAYING_RUNNER_HIT_RADIUS = 24;
 
-// idx が塁の数と等しいときがホーム（点が入る最後の塁）
-function getBaseOutRadius(idx, baseCount, isStatic) {
-  const isHome = idx >= baseCount;
-  if (isStatic) {
-    return isHome ? PLAYING_HOME_STATIC_OUT_RADIUS : PLAYING_BASE_STATIC_OUT_RADIUS;
-  }
-  return isHome ? PLAYING_HOME_HIT_RADIUS : PLAYING_BASE_HIT_RADIUS;
+// 点と線分の距離。送球は1フレームで大きく進むため、線分で走査して抜けを防ぐ。
+function distancePointToSegment(px, py, ax, ay, bx, by) {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const lengthSquared = dx * dx + dy * dy;
+  if (lengthSquared === 0) return Math.hypot(px - ax, py - ay);
+  const t = clamp(((px - ax) * dx + (py - ay) * dy) / lengthSquared, 0, 1);
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
 }
 
-// アウト処理の共通ロジック（checkPlayingBallHitsBases / checkBallAtThrowTargetOnPickup / advanceToNextInRoute から呼ばれる）
-function applyBaseOut(outRunner, baseEl) {
+// アウト処理の共通ロジック（走者に送球が当たったときだけ呼ばれる）
+function applyRunnerTagOut(outRunner) {
   outRunner.state = "out";
+  spawnRunnerTagBurst(outRunner.x, outRunner.y);
   renderPlayingRunners();
-
-  // 塁を赤くフラッシュ
-  baseEl.classList.add("is-tagged");
-  setTimeout(() => baseEl.classList.remove("is-tagged"), 800);
 
   // アウトランナー削除（少し後）— IDで絞り込むことでレースコンディションを防ぐ
   const outRunnerId = outRunner.id;
@@ -2908,69 +2893,38 @@ function applyBaseOut(outRunner, baseEl) {
   }
 }
 
-function checkPlayingBallHitsBases() {
+// 当たった位置に弾ける演出を出す
+function spawnRunnerTagBurst(x, y) {
+  const burst = document.createElement("div");
+  burst.className = "runner-tag-burst";
+  burst.style.left = `${x}px`;
+  burst.style.top = `${y}px`;
+  elements.playingSurface.appendChild(burst);
+  setTimeout(() => burst.remove(), 620);
+}
+
+// 生きた送球が走っている走者に当たったらアウト。
+// prevX/prevY からの線分で判定するので、速い送球でもすり抜けない。
+function checkPlayingBallHitsRunners(prevX, prevY) {
   if (!playingState.isBallActive || playingState.isHit) return false;
-  // 拾って投げた「生きた送球」だけが塁に入ったことになる。
+  // 拾って投げた「生きた送球」だけが走者を刺せる。
   // 壁に当たって跳ね返った球は、拾い直して投げ直すまでアウトを取れない。
   if (!playingState.throwIsLive) return false;
 
-  const rect = elements.playingSurface.getBoundingClientRect();
-  const bases = getPlayingBasePositions(rect);
-  const home = getPlayingHomePlate(rect);
-  const baseEls = [elements.playingBase0, elements.playingBase1, elements.playingBase2];
-  const allTargets = [
-    ...bases.map((b, i) => ({ pos: b, el: baseEls[i], idx: i })),
-    { pos: home, el: elements.playingHomeBase, idx: bases.length },
-  ];
+  for (const runner of playingState.runners) {
+    // 走っている走者だけが対象。塁上のセーフな走者とフォアボール進塁は当たらない。
+    if (runner.state !== "running" || runner.fromWalk) continue;
 
-  for (const { pos, el, idx } of allTargets) {
-    // この塁に向かって走っているランナーを先に探す（フォアボール走者はアウト対象外）
-    // DOM クラスではなくランナー状態から直接判定することで 1 フレームの遅延を排除
-    const runnerIndex = playingState.runners.findIndex(
-      (r) => r.state === "running" && r.toBaseIndex === idx && !r.fromWalk,
+    const dist = distancePointToSegment(
+      runner.x, runner.y, prevX, prevY, playingState.ballX, playingState.ballY,
     );
-    if (runnerIndex === -1) continue;
+    if (dist > PLAYING_RUNNER_HIT_RADIUS) continue;
 
-    // ヒット半径: 1〜3塁は塁そのものの大きさ寄り、ホームだけ広い
-    const dist = Math.hypot(playingState.ballX - pos.x, playingState.ballY - pos.y);
-    if (dist > getBaseOutRadius(idx, bases.length, false)) continue;
-
-    // アウト!
-    applyBaseOut(playingState.runners[runnerIndex], el);
+    playSfx("out");
+    applyRunnerTagOut(runner);
     return true;
   }
 
-  return false;
-}
-
-// ボールが throw target 上で静止している状態でピックアップされた時のアウト判定。
-// 生きた送球がその塁で止まった場合のみ成立する（壁跳ね返りや打球が転がり込んだ球は対象外）。
-function checkBallAtThrowTargetOnPickup() {
-  if (!playingState.throwIsLive) return false;
-
-  const rect = elements.playingSurface.getBoundingClientRect();
-  const bases = getPlayingBasePositions(rect);
-  const home = getPlayingHomePlate(rect);
-  const baseEls = [elements.playingBase0, elements.playingBase1, elements.playingBase2];
-  const allTargets = [
-    ...bases.map((b, i) => ({ pos: b, el: baseEls[i], idx: i })),
-    { pos: home, el: elements.playingHomeBase, idx: bases.length },
-  ];
-
-  for (const { pos, el, idx } of allTargets) {
-    // DOM クラスではなくランナー状態から直接判定
-    const runnerIndex = playingState.runners.findIndex(
-      (r) => r.state === "running" && r.toBaseIndex === idx && !r.fromWalk,
-    );
-    if (runnerIndex === -1) continue;
-
-    const dist = Math.hypot(playingState.ballX - pos.x, playingState.ballY - pos.y);
-    if (dist > getBaseOutRadius(idx, bases.length, true)) continue;
-
-    // アウト!
-    applyBaseOut(playingState.runners[runnerIndex], el);
-    return true;
-  }
   return false;
 }
 
@@ -3362,9 +3316,9 @@ function animatePlaying(timeStamp) {
     setPlayingBallPosition(playingState.ballX, playingState.ballY);
     // Playing プロトではオレンジ（contactable）表示不要
 
-    // 投球中: 塁ヒット判定（走者アウト）
+    // 送球が走者に当たったか（アウトはこれだけ）
     if (!playingState.isHit) { // isFielderThrow も isHit=false なので通過する
-      if (checkPlayingBallHitsBases()) {
+      if (checkPlayingBallHitsRunners(previousX, previousY)) {
         updatePlayingRunners(0);
         updatePlayingDebug();
         playingState.animationFrameId = window.requestAnimationFrame(animatePlaying);
@@ -3547,7 +3501,8 @@ function updatePlayingMode() {
       elements.playingLabelPitcher.classList.add("is-hidden");
       elements.playingLabelBatter.classList.add("is-hidden");
       elements.playingRunLabel.classList.remove("is-hidden");
-      elements.playingHint.textContent = "Fielder: pick up and throw!";
+      elements.playingTagLabel.classList.remove("is-hidden");
+      elements.playingHint.textContent = "拾って走者にぶつけるとアウト";
       elements.playingStrikeZone.classList.add("is-hidden");
       elements.playingHomeBase.classList.remove("is-hidden");
     }
@@ -3561,6 +3516,7 @@ function updatePlayingMode() {
       elements.playingLabelPitcher.classList.remove("is-hidden");
       elements.playingLabelBatter.classList.remove("is-hidden");
       elements.playingRunLabel.classList.add("is-hidden");
+      elements.playingTagLabel.classList.add("is-hidden");
       elements.playingHint.textContent = "Pitcher: swipe up to pitch  /  Batter: swing up";
       elements.playingStrikeZone.classList.remove("is-hidden");
       elements.playingHomeBase.classList.add("is-hidden");
@@ -3613,7 +3569,6 @@ function beginPlayingPointer(event) {
 
     if (nearBall) {
       playingState.isFielderThrow = true;
-      if (checkBallAtThrowTargetOnPickup()) return;
       playingState.isBallActive = false;
       playingState.isHit = false;
       playingState.isResting = false;

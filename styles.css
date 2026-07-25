@@ -1205,6 +1205,7 @@ button {
   box-shadow: 0 0 8px rgba(255, 255, 255, 0.26);
 }
 
+/* 塁は的ではなくなったので、位置だけ分かる薄い波線の輪郭にする */
 .playing-base {
   position: absolute;
   top: 0;
@@ -1214,70 +1215,72 @@ button {
   height: 18px;
   margin-left: -9px;
   margin-top: -9px;
-  background: rgba(255, 255, 255, 0.72);
+  background: transparent;
+  border: 1px dashed rgba(255, 255, 255, 0.3);
   transform-origin: center center;
   pointer-events: none;
-  box-shadow: 0 0 6px rgba(255, 255, 255, 0.3);
 }
 
-/* ホーム（点が入る最後の塁）だけは従来どおり周囲の円で示す */
-#playingHomeBase.is-throw-target::before {
-  content: "";
+/* 走者に当てる的の演出（塁ではなく走者側に付く） */
+.runner-target-ring {
   position: absolute;
-  inset: -25px;
+  z-index: 2;
+  width: 44px;
+  height: 44px;
+  margin-left: -22px;
+  margin-top: -22px;
   border-radius: 50%;
-  border: 2px solid rgba(255, 59, 48, 0.68);
-  background: transparent;
-  box-shadow: 0 0 12px rgba(255, 59, 48, 0.46);
-  animation: throw-target-pulse 0.72s ease-in-out infinite alternate;
+  border: 2px solid rgba(255, 59, 48, 0.75);
+  box-shadow: 0 0 12px rgba(255, 59, 48, 0.5);
   pointer-events: none;
+  animation: runner-target-pulse 0.6s ease-in-out infinite alternate;
 }
 
-@keyframes throw-target-pulse {
-  from {
-    opacity: 0.32;
-    transform: scale(0.92);
-  }
-
-  to {
-    opacity: 0.95;
-    transform: scale(1.18);
-  }
+@keyframes runner-target-pulse {
+  from { opacity: 0.35; transform: scale(0.8); }
+  to   { opacity: 1;    transform: scale(1.15); }
 }
 
-/* 1〜3塁は周囲の円をやめ、塁そのものを赤く点滅させる。
-   狙う的が塁の大きさと一致するので、絞った当たり判定と見た目が食い違わない。 */
-#playingBase0.is-throw-target,
-#playingBase1.is-throw-target,
-#playingBase2.is-throw-target {
-  animation: base-target-blink 0.66s linear infinite;
+/* 当たった瞬間の弾け */
+.runner-tag-burst {
+  position: absolute;
+  z-index: 6;
+  width: 18px;
+  height: 18px;
+  margin-left: -9px;
+  margin-top: -9px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 90, 70, 0.95);
+  box-shadow: 0 0 18px rgba(255, 59, 48, 0.9);
+  pointer-events: none;
+  animation: runner-tag-burst 0.6s ease-out forwards;
 }
 
-@keyframes base-target-blink {
-  0%,
-  44% {
-    background: rgba(255, 255, 255, 0.72);
-    box-shadow: 0 0 6px rgba(255, 255, 255, 0.3);
-  }
-
-  50%,
-  100% {
-    background: rgba(255, 59, 48, 0.95);
-    box-shadow: 0 0 16px rgba(255, 59, 48, 0.85);
-  }
+@keyframes runner-tag-burst {
+  from { opacity: 1; transform: scale(0.4); }
+  to   { opacity: 0; transform: scale(4.2); }
 }
 
-.playing-base.is-tagged {
-  background: rgba(255, 59, 48, 0.9);
-  box-shadow: 0 0 14px rgba(255, 59, 48, 0.7);
-  transition: background 0.15s, box-shadow 0.15s;
+/* 「走者に当てろ！」— 守備側（画面上半分）に出す */
+.playing-tag-label {
+  position: absolute;
+  top: 31%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 1.15rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: rgba(255, 90, 70, 0.92);
+  text-shadow: 0 0 10px rgba(255, 59, 48, 0.55);
+  pointer-events: none;
+  z-index: 4;
+  white-space: nowrap;
+  animation: tag-label-pulse 0.6s ease-in-out infinite alternate;
 }
 
-/* アウトのフラッシュは点滅より優先する（点滅アニメが赤フラッシュを上書きしないように） */
-#playingBase0.is-tagged,
-#playingBase1.is-tagged,
-#playingBase2.is-tagged {
-  animation: none;
+@keyframes tag-label-pulse {
+  from { opacity: 0.55; }
+  to   { opacity: 1; }
 }
 
 /* ===== Playing runners ===== */
@@ -1320,4 +1323,16 @@ button {
 @keyframes boosted-runner-flicker {
   from { opacity: 1; }
   to   { opacity: 0.72; }
+}
+
+/* 送球の的になっている走者: 赤く点滅する。
+   is-boosted より後に置くことで animation はこちらが勝ち、
+   filter は指定しないので連打中の琥珀色のオーラは残る。 */
+.playing-runner.is-target {
+  animation: runner-target-blink 0.34s linear infinite;
+}
+
+@keyframes runner-target-blink {
+  0%, 44%   { background: #ff3b30; }
+  50%, 100% { background: #fff0ee; }
 }
