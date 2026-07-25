@@ -434,7 +434,7 @@ function gameProcessScore() {
   saveGameToDB();
   playSfx("score");
   // 得点はホームベースから、そのチームのスコア表示へ飛んでいく
-  const rect = elements.playingSurface.getBoundingClientRect();
+  const rect = getPlayingSurfaceRect();
   const home = getPlayingHomePlate(rect);
   flyScorePointToTeam(home.x, home.y, battingTeam, "+1 得点！");
   if (shouldEndOnWalkoff() && !hasPendingHomeRunScores()) {
@@ -2335,8 +2335,41 @@ elements.battingSurface.addEventListener("pointercancel", endBattingPointer);
 
 // ===== Playing Prototype A =====
 
+// ===== ジオメトリキャッシュ =====
+// 盤面の寸法は1フレームの中では変化しない。にもかかわらず毎フレーム
+// getBoundingClientRect を10回以上呼んでおり、スタイル書き込みと交互に走るため
+// 強制同期レイアウトが積み重なっていた（実機でのヒッチの主因）。
+// 世代番号で1フレームぶんだけ結果を使い回す。世代はフレーム先頭とレイアウト
+// 変更時（リサイズ・画面切替）に進める。
+let playingGeomGeneration = 0;
+const playingGeomCache = { gen: -1 };
+
+function invalidatePlayingGeom() {
+  playingGeomGeneration += 1;
+}
+
+function playingGeom() {
+  if (playingGeomCache.gen !== playingGeomGeneration) {
+    playingGeomCache.gen = playingGeomGeneration;
+    playingGeomCache.surface = null;
+    playingGeomCache.topWallY = null;
+    playingGeomCache.bases = null;
+    playingGeomCache.home = null;
+    playingGeomCache.zone = null;
+  }
+  return playingGeomCache;
+}
+
+function getPlayingSurfaceRect() {
+  const c = playingGeom();
+  if (!c.surface) c.surface = elements.playingSurface.getBoundingClientRect();
+  return c.surface;
+}
+
 function getPlayingStrikeZoneRect() {
-  return getZoneRect(elements.playingSurface, elements.playingStrikeZone);
+  const c = playingGeom();
+  if (!c.zone) c.zone = getZoneRect(elements.playingSurface, elements.playingStrikeZone);
+  return c.zone;
 }
 
 function setPlayingBallPosition(x, y) {
@@ -2495,7 +2528,7 @@ function createSafeRunner(baseIndex, bases) {
 }
 
 function advanceRunnersOnWalk() {
-  const rect = elements.playingSurface.getBoundingClientRect();
+  const rect = getPlayingSurfaceRect();
   const bases = getPlayingBasePositions(rect);
   const home = getPlayingHomePlate(rect);
   const safeRunners = playingState.runners.filter((runner) => runner.state === "safe");
@@ -2560,27 +2593,34 @@ function advanceRunnersOnWalk() {
 }
 
 function getPlayingBasePositions(rect) {
+  const c = playingGeom();
+  if (c.bases) return c.bases;
   const topWallY = getPlayingTopWallY();
   // 塁は壁から離して内側に置く:
   // - 1塁/3塁を側壁から離すことで、壁際に静止した打球が塁の当たり半径に重なる
   //   「壁アシストのタダ取りアウト」を防ぐ
   // - 2塁を上壁から離すことで、深い打球（上壁到達）が2塁のすぐ横に止まって
   //   ピックアップ即アウトになる事故を防ぎ、外野リング（塁の外側の空間）を作る
-  return [
+  const bases = [
     { x: rect.width * 0.86, y: rect.height * 0.47 }, // 1塁（右・内側）
     { x: rect.width * 0.50, y: topWallY + 76 },      // 2塁（上壁から距離を取る）
     { x: rect.width * 0.14, y: rect.height * 0.47 }, // 3塁（左・内側）
   ];
+  c.bases = bases;
+  return bases;
 }
 
 function getPlayingHomePlate(rect) {
+  const c = playingGeom();
+  if (c.home) return c.home;
   // ストライクゾーンのCSS位置に合わせてサーフェス寸法から直接計算
   // .playing-strike-zone: bottom: 84px, height: 36px, 水平中央
   const safeBottom = 0; // env(safe-area-inset-bottom) は JS からは取得しにくいためゼロ近似
   const zoneBottom = rect.height - 84 - safeBottom;
   const zoneHeight = 36;
   const zoneTop = zoneBottom - zoneHeight;
-  return { x: rect.width * 0.5, y: zoneTop + zoneHeight / 2 };
+  c.home = { x: rect.width * 0.5, y: zoneTop + zoneHeight / 2 };
+  return c.home;
 }
 
 // マウンドの位置と大きさ。2塁とディバイダー（ピッチャーエリアの下端）の中間に置く。
@@ -2608,13 +2648,13 @@ function getPlayingMound(rect) {
 }
 
 function isInsidePlayingMound(x, y) {
-  const mound = getPlayingMound(elements.playingSurface.getBoundingClientRect());
+  const mound = getPlayingMound(getPlayingSurfaceRect());
   return Math.hypot(x - mound.x, y - mound.y) <= mound.radius;
 }
 
 // 描画は判定と同じ値から組み立て、見た目と当たり判定がズレないようにする
 function updatePlayingMoundDOM() {
-  const mound = getPlayingMound(elements.playingSurface.getBoundingClientRect());
+  const mound = getPlayingMound(getPlayingSurfaceRect());
   const el = elements.playingMound;
   el.style.width = `${mound.radius * 2}px`;
   el.style.height = `${mound.radius * 2}px`;
@@ -2631,10 +2671,15 @@ function updatePlayingMoundDOM() {
   }
 }
 
+let lastHomeBaseTransform = "";
+
 function updatePlayingHomBaseDOM() {
-  const rect = elements.playingSurface.getBoundingClientRect();
-  const home = getPlayingHomePlate(rect);
-  elements.playingHomeBase.style.transform = `translate(${home.x}px, ${home.y}px) rotate(45deg)`;
+  const home = getPlayingHomePlate(getPlayingSurfaceRect());
+  const transform = `translate(${home.x}px, ${home.y}px) rotate(45deg)`;
+  // 毎フレーム呼ばれるが、盤面が変わらない限り値は同じ。無駄な書き込みを避ける。
+  if (transform === lastHomeBaseTransform) return;
+  lastHomeBaseTransform = transform;
+  elements.playingHomeBase.style.transform = transform;
 }
 
 function showPlayingScore() {
@@ -2642,8 +2687,9 @@ function showPlayingScore() {
 }
 
 function updatePlayingBasesDOM() {
+  invalidatePlayingGeom();
   updatePlayingMoundDOM();
-  const rect = elements.playingSurface.getBoundingClientRect();
+  const rect = getPlayingSurfaceRect();
   const bases = getPlayingBasePositions(rect);
   const baseEls = [elements.playingBase0, elements.playingBase1, elements.playingBase2];
   bases.forEach((base, i) => {
@@ -2652,7 +2698,7 @@ function updatePlayingBasesDOM() {
 }
 
 function spawnRunnerOnHit() {
-  const rect = elements.playingSurface.getBoundingClientRect();
+  const rect = getPlayingSurfaceRect();
   const bases = getPlayingBasePositions(rect);
   const home = getPlayingHomePlate(rect);
 
@@ -2729,13 +2775,19 @@ function spawnBoostRipple(x, y) {
   setTimeout(() => ripple.remove(), 500);
 }
 
+let lastBoostGaugeWidth = "";
+
 function updateRunnerBoostGauge() {
-  elements.runnerBoostGaugeFill.style.width =
-    `${(playingState.runnerBoost / physics.runnerBoostMax) * 100}%`;
+  // 0.1% 単位に丸めて、同じ値なら書き込まない（毎フレーム呼ばれるため）
+  const percent = (playingState.runnerBoost / physics.runnerBoostMax) * 100;
+  const width = `${Math.round(percent * 10) / 10}%`;
+  if (width === lastBoostGaugeWidth) return;
+  lastBoostGaugeWidth = width;
+  elements.runnerBoostGaugeFill.style.width = width;
 }
 
 function updatePlayingRunners(dt) {
-  const rect = elements.playingSurface.getBoundingClientRect();
+  const rect = getPlayingSurfaceRect();
   const bases = getPlayingBasePositions(rect);
   const home = getPlayingHomePlate(rect);
   let runnersSettled = false;
@@ -2813,7 +2865,7 @@ function updatePlayingRunners(dt) {
 }
 
 function renderPlayingRunners() {
-  const rect = elements.playingSurface.getBoundingClientRect();
+  const rect = getPlayingSurfaceRect();
   const bases = getPlayingBasePositions(rect);
   const runnerEls = [elements.playingRunner0, elements.playingRunner1, elements.playingRunner2, elements.playingRunner3];
 
@@ -2857,7 +2909,6 @@ function renderPlayingRunners() {
 
   updatePlayingMode();
   updatePlayingThrowTargets();
-  if (hasActiveRunners()) { startCrowdCheer(); } else { stopCrowdCheer(); }
 }
 
 // 送球の的は塁ではなく走者。狙える走者に赤い点滅とリングを付ける。
@@ -3023,9 +3074,13 @@ function startPlayingRolling() {
 }
 
 function getPlayingTopWallY() {
-  const surfaceRect = elements.playingSurface.getBoundingClientRect();
-  const wallRect = elements.playingTopWall.getBoundingClientRect();
-  return wallRect.bottom - surfaceRect.top;
+  const c = playingGeom();
+  if (c.topWallY === null) {
+    const surfaceRect = getPlayingSurfaceRect();
+    const wallRect = elements.playingTopWall.getBoundingClientRect();
+    c.topWallY = wallRect.bottom - surfaceRect.top;
+  }
+  return c.topWallY;
 }
 
 // 上壁に達した打球がホームランに足りているかを 1.0 基準で返す。
@@ -3101,7 +3156,7 @@ function triggerHomeRun() {
   playingState.isHomeRun = true;
 
   // 走者全員に残りの塁を順番に回らせてホームインさせる
-  const rect = elements.playingSurface.getBoundingClientRect();
+  const rect = getPlayingSurfaceRect();
   const bases = getPlayingBasePositions(rect);
   for (const runner of playingState.runners) {
     if (runner.state === "out" || runner.state === "scored") continue;
@@ -3288,7 +3343,7 @@ function spawnDeadBallBurst(x, y) {
 // 加点そのものは呼び出し側で即座に済ませておく（飛行中にイニングが終わっても
 // 得点が消えないようにするため。演出の完了を待つと取りこぼす経路がある）。
 function flyScorePointToTeam(fromX, fromY, teamIdx, label) {
-  const surfaceRect = elements.playingSurface.getBoundingClientRect();
+  const surfaceRect = getPlayingSurfaceRect();
   const targetEl = teamIdx === 0 ? elements.statusTeamBlue : elements.statusTeamRed;
   const scoreEl = teamIdx === 0 ? elements.statusScoreBlue : elements.statusScoreRed;
   const targetRect = targetEl.getBoundingClientRect();
@@ -3397,6 +3452,7 @@ function finishPlayingPitch(message = "READY") {
 
 function animatePlaying(timeStamp) {
   if (!playingState.isRunning) return;
+  invalidatePlayingGeom();   // このフレームぶんのジオメトリを取り直す
   if (!playingState.lastTick) playingState.lastTick = timeStamp;
   const dt = Math.min((timeStamp - playingState.lastTick) / 1000, 0.032);
   playingState.lastTick = timeStamp;
@@ -3436,7 +3492,7 @@ function animatePlaying(timeStamp) {
   }
 
   if (playingState.isBallActive) {
-    const rect = elements.playingSurface.getBoundingClientRect();
+    const rect = getPlayingSurfaceRect();
     const previousX = playingState.ballX;
     const previousY = playingState.ballY;
     const previousHeight = playingState.height;
@@ -3700,6 +3756,7 @@ function showPlayingScreen(maxInnings = 9) {
   elements.battingScreen.classList.add("is-hidden");
   elements.playingScreen.classList.remove("is-hidden");
   clearSaveData();
+  warmUpSfx();
   resetGameState();
   gameState.maxInnings = maxInnings;
   resetPlayingState();
@@ -3722,7 +3779,7 @@ function showPlayingScreen(maxInnings = 9) {
 // ---- Playing pointer handlers ----
 
 function getPlayingSurfacePoint(event) {
-  const rect = elements.playingSurface.getBoundingClientRect();
+  const rect = getPlayingSurfaceRect();
   return { x: event.clientX - rect.left, y: event.clientY - rect.top };
 }
 
@@ -3735,12 +3792,11 @@ function updatePlayingMode() {
   const wasRunnerMode = !elements.playingRunLabel.classList.contains("is-hidden");
   // 走者ブーストのタップエリア表示: ブーストが効く状況（インプレー中の走者あり）のみ
   // フォアボール進塁（inPlay=false）ではタップが無効なので表示しない
-  // 表示の高さは判定と同じ比率から作り、見た目と当たり判定をズラさない
-  elements.runnerBoostArea.style.height = `${(1 - physics.runnerBoostAreaTopRatio) * 100}%`;
   elements.runnerBoostArea.classList.toggle("is-hidden", !(running && playingState.inPlay));
   if (running) {
     if (!wasRunnerMode) {
       // 走者モード突入時のみUI切替
+      startCrowdCheer();
       updatePlayingAreaSplit(true);
       // 打った直後は指が乗ったままなので、デッドボールの輪をここで確実に消す
       elements.playingBatterFinger.classList.add("is-hidden");
@@ -3757,6 +3813,7 @@ function updatePlayingMode() {
   } else {
     if (wasRunnerMode) {
       // 通常モード復帰時のみUI切替
+      stopCrowdCheer();
       updatePlayingAreaSplit(false);
       // 走者モード突入時に輪を隠しているので、指が乗ったままなら戻す
       updateBatterFingerRing();
@@ -3787,19 +3844,30 @@ function updatePlayingMode() {
 // エリア着色の分割位置。守備中はピッチャー側が連打エリアの上端まで広がり、
 // 投球中は 50% に戻る。className を書き換える updateStatusBar と競合しないよう
 // インラインスタイルで設定する。
+let lastAreaSplitFielding = null;
+
 function updatePlayingAreaSplit(isFieldingMode) {
+  // 連打エリアの表示高さは判定と同じ比率から作る（毎フレームではなく切替時だけ）
+  elements.runnerBoostArea.style.height =
+    `${(1 - physics.runnerBoostAreaTopRatio) * 100}%`;
+
+  lastAreaSplitFielding = isFieldingMode;
   const ratio = isFieldingMode ? physics.runnerBoostAreaTopRatio : 0.5;
-  const percent = ratio * 100;
-  elements.playingAreaTop.style.height =
-    `calc(${percent}% - env(safe-area-inset-top) - 52px)`;
-  elements.playingAreaBottom.style.top = `${percent}%`;
+  const rect = getPlayingSurfaceRect();
+  const wallY = getPlayingTopWallY();
+  const fieldHeight = Math.max(1, rect.height - wallY);
+  const splitY = rect.height * ratio;
+  // 上は壁から分割位置まで、下は分割位置から下端まで（どちらも scaleY で表す）
+  elements.playingAreaTop.style.transform =
+    `scaleY(${clamp((splitY - wallY) / fieldHeight, 0, 1)})`;
+  elements.playingAreaBottom.style.transform =
+    `scaleY(${clamp((rect.height - splitY) / fieldHeight, 0, 1)})`;
 }
 
 function isTopHalf(y) {
   // 走者が走っている場合は全画面がフィールダーエリア
   if (hasActiveRunners()) return true;
-  const rect = elements.playingSurface.getBoundingClientRect();
-  return y < rect.height * 0.5;
+  return y < getPlayingSurfaceRect().height * 0.5;
 }
 
 function beginPlayingPointer(event) {
@@ -3823,7 +3891,7 @@ function beginPlayingPointer(event) {
     // 必ず受け付ける（マルチタッチ前提）。以前は pitcherPointerId の早期 return に
     // 飲み込まれ、送球モーション中だけ連打が無効になっていた。
     if (!nearBall && playingState.inPlay) {
-      const surfaceRect = elements.playingSurface.getBoundingClientRect();
+      const surfaceRect = getPlayingSurfaceRect();
       if (point.y >= surfaceRect.height * physics.runnerBoostAreaTopRatio) {
         applyRunnerBoostTap(point.x, point.y);
         return;
@@ -4013,8 +4081,10 @@ function getPlayingBatterVector() {
 // 特にマウンドは投球開始の当たり判定を兼ねるため、見た目とのズレは操作不能に直結する。
 function refreshPlayingLayout() {
   if (elements.playingScreen.classList.contains("is-hidden")) return;
+  invalidatePlayingGeom();
   updatePlayingBasesDOM();
   updatePlayingHomBaseDOM();
+  updatePlayingAreaSplit(lastAreaSplitFielding === true);
   renderPlayingRunners();
 }
 
@@ -4031,15 +4101,40 @@ const DB_NAME = "baseballGame";
 const DB_STORE = "saveData";
 const DB_KEY = "gameState";
 
+// 接続は一度だけ開いて使い回す。以前は保存のたびに indexedDB.open() していて、
+// プレー終了時など保存が集中する瞬間に1秒級のスパイクが出ていた。
+let dbPromise = null;
+
 function openDB() {
-  return new Promise((resolve, reject) => {
+  if (dbPromise) return dbPromise;
+  dbPromise = new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, 1);
     req.onupgradeneeded = (e) => {
       e.target.result.createObjectStore(DB_STORE);
     };
     req.onsuccess = (e) => resolve(e.target.result);
     req.onerror = () => reject(req.error);
+  }).catch((err) => {
+    dbPromise = null;   // 失敗したら次回やり直せるようにする
+    throw err;
   });
+  return dbPromise;
+}
+
+// 保存は1プレー中に何度も呼ばれる（進塁・得点・アウトごと）。
+// 実際の書き込みはまとめて1回にする。
+let pendingSaveData = null;
+let saveTimerId = 0;
+
+function flushSaveToDB() {
+  saveTimerId = 0;
+  const data = pendingSaveData;
+  pendingSaveData = null;
+  if (!data) return;
+  openDB().then((db) => {
+    const tx = db.transaction(DB_STORE, "readwrite");
+    tx.objectStore(DB_STORE).put(data, DB_KEY);
+  }).catch(() => {});
 }
 
 function saveGameToDB() {
@@ -4059,13 +4154,18 @@ function saveGameToDB() {
     runners: savedRunners,
     savedAt: Date.now(),
   };
-  openDB().then((db) => {
-    const tx = db.transaction(DB_STORE, "readwrite");
-    tx.objectStore(DB_STORE).put(data, DB_KEY);
-  }).catch(() => {});
+  pendingSaveData = data;
+  if (saveTimerId) return;
+  saveTimerId = setTimeout(flushSaveToDB, 250);
 }
 
 function clearSaveData() {
+  // 保留中の書き込みが後から復活しないよう取り消す
+  pendingSaveData = null;
+  if (saveTimerId) {
+    clearTimeout(saveTimerId);
+    saveTimerId = 0;
+  }
   openDB().then((db) => {
     const tx = db.transaction(DB_STORE, "readwrite");
     tx.objectStore(DB_STORE).delete(DB_KEY);
@@ -4099,7 +4199,7 @@ function applyLoadedGame(data) {
 
 function restoreRunnersFromSave(savedRunners) {
   if (!savedRunners || savedRunners.length === 0) return;
-  const rect = elements.playingSurface.getBoundingClientRect();
+  const rect = getPlayingSurfaceRect();
   const bases = getPlayingBasePositions(rect);
   const home = getPlayingHomePlate(rect);
   playingState.runners = savedRunners.map((r) => {
@@ -4123,7 +4223,7 @@ function restoreRunnersFromSave(savedRunners) {
 }
 
 // ===== Sound Effects =====
-// MP3 アセットを使用。短い効果音は同時再生のため都度 new Audio() で生成し、
+// MP3 アセットを使用。短い効果音は同時再生に備えてキーごとにプールし、
 // ループ系（走者の足音／ホームラン中のざわめき）は単一インスタンスを管理する。
 
 const SOUND_FILES = {
@@ -4153,12 +4253,56 @@ const SOUND_VOLUMES = {
   gameEnd: 0.85, score: 0.8,
 };
 
-function playSfx(key) {
+// 効果音は使い回す。以前は鳴らすたびに new Audio() していて、
+// 要素生成と読み込み・デコードがフレームに乗ってヒッチの原因になっていた。
+// 同じ音が重なる場合に備えて1キーあたり複数持ち、順番に使う。
+const SFX_POOL_SIZE = 3;
+const sfxPools = new Map();
+
+function getSfxPool(key) {
+  let pool = sfxPools.get(key);
+  if (pool) return pool;
   const src = SOUND_FILES[key];
-  if (!src) return;
-  try {
+  if (!src) return null;
+  const volume = SOUND_VOLUMES[key] ?? 0.7;
+  const list = [];
+  for (let i = 0; i < SFX_POOL_SIZE; i += 1) {
     const a = new Audio(src);
-    a.volume = SOUND_VOLUMES[key] ?? 0.7;
+    a.preload = "auto";
+    a.volume = volume;
+    list.push(a);
+  }
+  pool = { list, next: 0 };
+  sfxPools.set(key, pool);
+  return pool;
+}
+
+// 画面を開いた時点で用意しておき、初回再生時の生成コストを外に出す。
+// ただし一度に全キーぶん作ると生成と先読みが固まって数十msのスパイクになるため、
+// 1キーずつ間隔を空けて作る。
+let sfxWarmQueue = null;
+
+function warmUpSfx() {
+  if (sfxWarmQueue) return;
+  sfxWarmQueue = Object.keys(SOUND_FILES).filter((key) => !sfxPools.has(key));
+  const step = () => {
+    if (!sfxWarmQueue || sfxWarmQueue.length === 0) {
+      sfxWarmQueue = null;
+      return;
+    }
+    try { getSfxPool(sfxWarmQueue.shift()); } catch (_) {}
+    setTimeout(step, 70);
+  };
+  setTimeout(step, 70);
+}
+
+function playSfx(key) {
+  try {
+    const pool = getSfxPool(key);
+    if (!pool) return;
+    const a = pool.list[pool.next];
+    pool.next = (pool.next + 1) % pool.list.length;
+    try { a.currentTime = 0; } catch (_) {}
     const p = a.play();
     if (p && typeof p.catch === "function") p.catch(() => {});
   } catch (_) {}
@@ -4166,14 +4310,26 @@ function playSfx(key) {
 
 let _runnerLoopAudio = null;
 let _homerunLoopAudio = null;
+const loopAudioCache = {};
+
+// ループ音は1つだけ作って使い回す（走者が出るたびに生成しない）
+function getLoopAudio(slot, key) {
+  if (!loopAudioCache[slot]) {
+    const a = new Audio(SOUND_FILES[key]);
+    a.loop = true;
+    a.preload = "auto";
+    a.volume = SOUND_VOLUMES[key];
+    loopAudioCache[slot] = a;
+  }
+  return loopAudioCache[slot];
+}
 
 function startRunnerLoop() {
   if (_homerunLoopAudio) return; // ホームラン中は鳴らさない
   if (_runnerLoopAudio) return;
   try {
-    const a = new Audio(SOUND_FILES.runnerLoop);
-    a.loop = true;
-    a.volume = SOUND_VOLUMES.runnerLoop;
+    const a = getLoopAudio("runner", "runnerLoop");
+    try { a.currentTime = 0; } catch (_) {}
     const p = a.play();
     if (p && typeof p.catch === "function") p.catch(() => {});
     _runnerLoopAudio = a;
@@ -4191,9 +4347,8 @@ function startHomerunLoop() {
   if (_homerunLoopAudio) return;
   playSfx("homerunCheer");
   try {
-    const a = new Audio(SOUND_FILES.homerunLoop);
-    a.loop = true;
-    a.volume = SOUND_VOLUMES.homerunLoop;
+    const a = getLoopAudio("homerun", "homerunLoop");
+    try { a.currentTime = 0; } catch (_) {}
     const p = a.play();
     if (p && typeof p.catch === "function") p.catch(() => {});
     _homerunLoopAudio = a;
@@ -4220,6 +4375,7 @@ function startHomeRunCheer()  { startHomerunLoop(); }
 loadGameFromDB().then((saved) => {
   if (saved) {
     cancelResetHold();
+    warmUpSfx();
     applyLoadedGame(saved);
     resetPlayingState();
     updateStatusBar();
