@@ -78,6 +78,10 @@ const playingState = {
   pitcherPointerId: null,
   pitcherTrail: [],
   pitcherReleaseCurve: 0,
+  // 投球を開始した位置（ピッチャーエリア内）。エリアを外れてリリースしても
+  // ここからの距離で山なりを決めることで失速させない。
+  pitchOriginX: null,
+  pitchOriginY: null,
   isPitched: false,
   // ball physics (pitching-proto identical, Y-axis flipped: +Y = toward batter)
   isRunning: false,
@@ -513,9 +517,9 @@ const physics = {
   battingMaxRawSpeed: 4500,
   battingSpeedScale: 0.18,
   battingContactTopAllowance: 4,
-  battingSwingThreshold: 350,
-  battingSwingDuration: 0.055,
-  batContactRadius: 32,
+  battingSwingThreshold: 330,
+  battingSwingDuration: 0.065,
+  batContactRadius: 35,
   battingHitDragPerSecond: 1.1,
   battingStopSpeed: 18,
   battingRestSpeed: 90,
@@ -536,22 +540,26 @@ const physics = {
   // スイング角度のアナログばらつき（ラジアン）
   battingSwingAngleVariation: 0.05,
   // スイング後の接触猶予時間（秒）
-  battingSwingLingerDuration: 0.05,
+  // スイング時間 0.065 と合わせて約 0.15 秒の接触ウィンドウになる（振り遅れ／早振りの緩和）
+  battingSwingLingerDuration: 0.085,
   // 打球カーブ継承時の減衰レート（1/秒）
   hitBallCurveDecayRate: 1.5,
   // 打球カーブ適用の最小加速度閾値
   hitBallCurveThreshold: 0.5,
   // 走者の基本速度（px/s）: タップしないと割と遅い
-  runnerBaseSpeed: 62,
+  runnerBaseSpeed: 78,
   // フォアボール自動進塁の速度（px/s）: タップ無効なので待たせないよう速め
-  walkAdvanceSpeed: 110,
+  walkAdvanceSpeed: 124,
   // 走者ブースト: バッター側の連打1回あたりの加速量（px/s）
-  // 上限64に対して1タップ15 → 満タンに4〜5連打、維持に秒3.5回程度の本当の連打が必要
-  runnerBoostPerTap: 15,
-  // 走者ブーストの上限（px/s）: 基本62+上限64=最大126px/s
-  runnerBoostMax: 64,
-  // 走者ブーストの減衰速度（px/s^2）
-  runnerBoostDecayPerSecond: 55,
+  // 上限78に対して1タップ17 → 満タンに5連打、維持に秒3回程度の本当の連打が必要
+  runnerBoostPerTap: 17,
+  // 走者ブーストの上限（px/s）: 基本78+上限78=最大156px/s
+  runnerBoostMax: 78,
+  // 走者ブーストの減衰速度（px/s^2）: 連打の手応えを残すため緩やかに落とす
+  runnerBoostDecayPerSecond: 46,
+  // アウト発生時に残った走者へ与えるブースト（上限に対する比率）
+  // 「1つアウトが出ると芋づるで全員アウト」を走者側の反撃で抑える
+  runnerBoostOnOutRatio: 0.55,
   // プレー終了後に次の投球を受け付けるまでのクールダウン（ms）
   playEndPitchCooldownMs: 900,
   // 深い打球（上壁到達）が静止後に拾えるようになるまでの遅延（秒）
@@ -565,6 +573,17 @@ const physics = {
   cornerZoneHeight: 70,
   // コーナーゾーンに届いた打球が拾えるまでの遅延（秒）: 深い打球よりさらに長い
   cornerZonePickupDelay: 1.2,
+  // --- 投球のエリア越え許容 ---
+  // ピッチャーエリアを超える長いスワイプは指が終端で自然に緩むため、
+  // 直近 35ms だけを見ると球速がほぼゼロになり「失速」して見える。
+  // 直近 pitchReleaseGraceMs の中の最速サンプルを拾い、その pitchReleaseGraceRatio まで戻す。
+  pitchReleaseGraceMs: 140,
+  pitchReleaseGraceRatio: 0.82,
+  // リリース位置がエリアを外れても、投げ始めた位置からの距離で山なりの高さを決める。
+  // これにより深いリリースでも地面近くの追加ドラッグ帯に早々と落ちない。
+  pitchArcOriginRatio: 0.72,
+  // 着地間際に掛かる追加ドラッグ（1/秒）。大きいほど手前で失速する。
+  pitchGroundDragPerSecond: 0.9,
 };
 
 function updateHeightDebug() {
@@ -678,6 +697,63 @@ function getTrailReleaseVector(trail, sampleAgeMs = 35) {
     velocityY: (deltaY / deltaTime) * 1000,
     speed: (Math.hypot(deltaX, deltaY) / deltaTime) * 1000,
     curve: getTrailCurve(trail),
+  };
+}
+
+// リリース直前で指が緩んでも球速を維持するための許容付きリリースベクトル。
+// 直近 graceMs の範囲で最も速かったサンプル窓を探し、終端サンプルがそれより
+// 大きく遅い場合だけ、その最速窓の向き・速度（の graceRatio 倍）を採用する。
+// ピッチャーエリアを超える長いスワイプは終端で必ず減速するため、この許容がないと
+// 「エリアを超えて投げると失速する」挙動になる。
+function getTrailReleaseVectorWithGrace(trail, sampleAgeMs, graceMs, graceRatio) {
+  const base = getTrailReleaseVector(trail, sampleAgeMs);
+
+  if (!base || trail.length < 3) {
+    return base;
+  }
+
+  const lastPoint = trail[trail.length - 1];
+  let best = null;
+
+  for (let end = trail.length - 1; end >= 1; end -= 1) {
+    if (lastPoint.timeStamp - trail[end].timeStamp > graceMs) {
+      break;
+    }
+
+    for (let start = end - 1; start >= 0; start -= 1) {
+      if (trail[end].timeStamp - trail[start].timeStamp < sampleAgeMs && start > 0) {
+        continue;
+      }
+
+      const deltaTime = Math.max(trail[end].timeStamp - trail[start].timeStamp, 16);
+      const deltaX = trail[end].x - trail[start].x;
+      const deltaY = trail[end].y - trail[start].y;
+      const speed = (Math.hypot(deltaX, deltaY) / deltaTime) * 1000;
+
+      if (!best || speed > best.speed) {
+        best = { deltaX, deltaY, deltaTime, speed };
+      }
+      break;
+    }
+  }
+
+  if (!best) {
+    return base;
+  }
+
+  const graceSpeed = best.speed * graceRatio;
+
+  if (base.speed >= graceSpeed || best.speed < 0.0001) {
+    return base;
+  }
+
+  return {
+    deltaX: best.deltaX,
+    deltaY: best.deltaY,
+    velocityX: (best.deltaX / best.deltaTime) * 1000 * graceRatio,
+    velocityY: (best.deltaY / best.deltaTime) * 1000 * graceRatio,
+    speed: graceSpeed,
+    curve: base.curve,
   };
 }
 
@@ -809,10 +885,25 @@ function launchPitchModel(model, vector, zone, options = {}) {
   const distToZone = Math.max(0, (zoneCenterX - model.ballX) * rdX + (zoneCenterY - model.ballY) * rdY);
   const travelSpeed = Math.hypot(model.velocityX, model.velocityY);
   const drag = physics.dragPerSecond;
-  const minHeightForZone =
-    travelSpeed > distToZone * drag
-      ? 0.5 * model.flightGravity * (-Math.log(1 - (distToZone * drag) / travelSpeed) / drag) ** 2 * 1.1
+  const arcHeightForDistance = (distance) =>
+    travelSpeed > distance * drag
+      ? 0.5 * model.flightGravity * (-Math.log(1 - (distance * drag) / travelSpeed) / drag) ** 2 * 1.1
       : 0;
+
+  let minHeightForZone = arcHeightForDistance(distToZone);
+
+  // 投げ始めた位置（＝ピッチャーエリア内）からの距離でも山なりを見積もり、高いほうを採る。
+  // リリース点がエリアを外れて深くなっても、投球はきちんと浮いたまま届く。
+  if (options.arcOriginX !== undefined && options.arcOriginY !== undefined) {
+    const originDist = Math.max(
+      0,
+      (zoneCenterX - options.arcOriginX) * rdX + (zoneCenterY - options.arcOriginY) * rdY,
+    );
+    minHeightForZone = Math.max(
+      minHeightForZone,
+      arcHeightForDistance(originDist * physics.pitchArcOriginRatio),
+    );
+  }
 
   model.initialHeight = Math.min(400, Math.max(baseHeight, minHeightForZone));
   model.height = model.initialHeight;
@@ -2547,7 +2638,7 @@ function updatePlayingRunners(dt) {
         !playingState.isBallActive
       ) {
         const ballDist = Math.hypot(playingState.ballX - target.x, playingState.ballY - target.y);
-        if (ballDist <= PLAYING_BASE_HIT_RADIUS) {
+        if (ballDist <= PLAYING_BASE_STATIC_OUT_RADIUS) {
           const baseElArr = [elements.playingBase0, elements.playingBase1, elements.playingBase2];
           const baseEl = runner.toBaseIndex < bases.length ? baseElArr[runner.toBaseIndex] : elements.playingHomeBase;
           applyBaseOut(runner, baseEl);
@@ -2663,7 +2754,13 @@ function updatePlayingThrowTargets() {
 }
 
 // 送球アウト判定の当たり半径（全塁統一。大きいほどアウトを取りやすい）
+// 飛んでいる送球が塁に届いたときの半径。視覚インジケーターの最大スケールに合わせる。
 const PLAYING_BASE_HIT_RADIUS = 30;
+// 「送球していないのに成立するアウト」用の半径。
+// - 塁の上に転がって止まったボールを拾っただけ
+// - 止まっているボールの側へ走者が飛び込んだだけ
+// これらは守備側の操作を伴わないタダ取りアウトなので、判定を絞って走者を守る。
+const PLAYING_BASE_STATIC_OUT_RADIUS = 18;
 
 // アウト処理の共通ロジック（checkPlayingBallHitsBases / checkBallAtThrowTargetOnPickup / advanceToNextInRoute から呼ばれる）
 function applyBaseOut(outRunner, baseEl) {
@@ -2684,6 +2781,12 @@ function applyBaseOut(outRunner, baseEl) {
   const stillHasRunners = playingState.runners.some((r) => r !== outRunner && r.state === "running");
 
   if (stillHasRunners) {
+    // アウトが出た瞬間、残った走者に「走れ！」の勢いを与える。
+    // ボールは拾いやすいままにしたうえで、芋づる式の連続アウトだけを走者の脚で押し返す。
+    playingState.runnerBoost = Math.max(
+      playingState.runnerBoost,
+      physics.runnerBoostMax * physics.runnerBoostOnOutRatio,
+    );
     // 走者がまだいる → ボールを残してフィールダーが拾い直せる状態に
     updatePlayingCall("OUT!", "is-out");
     gameProcessOut("OUT!");
@@ -2755,7 +2858,7 @@ function checkBallAtThrowTargetOnPickup() {
     if (runnerIndex === -1) continue;
 
     const dist = Math.hypot(playingState.ballX - pos.x, playingState.ballY - pos.y);
-    if (dist > PLAYING_BASE_HIT_RADIUS) continue;
+    if (dist > PLAYING_BASE_STATIC_OUT_RADIUS) continue;
 
     // アウト!
     applyBaseOut(playingState.runners[runnerIndex], el);
@@ -2884,6 +2987,8 @@ function resetPlayingState() {
   playingState.pitcherPointerId = null;
   playingState.pitcherTrail = [];
   playingState.pitcherReleaseCurve = 0;
+  playingState.pitchOriginX = null;
+  playingState.pitchOriginY = null;
   playingState.isPitched = false;
   playingState.isBallActive = false;
   playingState.isHit = false;
@@ -2946,7 +3051,12 @@ function resetPlayingState() {
 
 function launchPlayingBall(vector) {
   playSoundWhoosh();
-  const launch = launchPitchModel(playingState, vector, getPlayingStrikeZoneRect());
+  // 通常投球のみエリア越え許容（山なり維持）を適用する。フィールダー送球は素直な直線。
+  const arcOptions =
+    !playingState.isFielderThrow && playingState.pitchOriginX !== null
+      ? { arcOriginX: playingState.pitchOriginX, arcOriginY: playingState.pitchOriginY }
+      : {};
+  const launch = launchPitchModel(playingState, vector, getPlayingStrikeZoneRect(), arcOptions);
   playingState.pitchRawSpeed = clamp(launch.scaledSpeed, physics.battingMinRawSpeed, physics.battingMaxRawSpeed);
   playingState.isBallActive = true;
   playingState.isHit = false;
@@ -3052,7 +3162,7 @@ function animatePlaying(timeStamp) {
 
         if (playingState.height < 28 && playingState.heightVelocity < 0) {
           const groundFactor = playingState.height / 28;
-          const approachDrag = Math.exp(-2.0 * (1 - groundFactor) * dt);
+          const approachDrag = Math.exp(-physics.pitchGroundDragPerSecond * (1 - groundFactor) * dt);
           playingState.velocityX *= approachDrag;
           playingState.velocityY *= approachDrag;
         }
@@ -3332,14 +3442,26 @@ function beginPlayingPointer(event) {
   const point = getPlayingSurfacePoint(event);
   if (isTopHalf(point.y)) {
     // ピッチャー側
-    if (playingState.pitcherPointerId !== null) return;
-
     // ピックアップ判定: ヒット or フィールダースローが赤くなった（isResting）後のみ拾える
     // ボール位置に十分近い場合のみピックアップ可
     const ballOnField =
       (playingState.isHit || playingState.isFielderThrow) && playingState.isResting;
     const nearBall = ballOnField &&
       Math.hypot(point.x - playingState.ballX, point.y - playingState.ballY) <= 36;
+
+    // 走者ブーストの連打は、フィールダーがボールを掴んで送球を構えている最中でも
+    // 必ず受け付ける（マルチタッチ前提）。以前は pitcherPointerId の早期 return に
+    // 飲み込まれ、送球モーション中だけ連打が無効になっていた。
+    if (!nearBall && playingState.inPlay) {
+      const surfaceRect = elements.playingSurface.getBoundingClientRect();
+      if (point.y >= surfaceRect.height * 0.5) {
+        applyRunnerBoostTap(point.x, point.y);
+        return;
+      }
+    }
+
+    if (playingState.pitcherPointerId !== null) return;
+
     if (nearBall) {
       playingState.isFielderThrow = true;
       if (checkBallAtThrowTargetOnPickup()) return;
@@ -3360,12 +3482,8 @@ function beginPlayingPointer(event) {
     }
 
     // インプレー中はピックアップ以外で投球を開始できない（区切り）。
-    // ボールから離れたタップは、バッター側（下半分）なら走者ブーストとして扱う。
-    if (!nearBall && playingState.inPlay) {
-      const rect = elements.playingSurface.getBoundingClientRect();
-      if (point.y >= rect.height * 0.5) applyRunnerBoostTap(point.x, point.y);
-      return;
-    }
+    // 下半分のタップは上で走者ブーストとして処理済み。
+    if (!nearBall && playingState.inPlay) return;
 
     if (playingState.isPitched) return; // まだ飛行中
 
@@ -3387,6 +3505,9 @@ function beginPlayingPointer(event) {
     }
 
     // 通常のピッチ開始（またはピックアップ直後のフィールダースロー開始）
+    // 投げ始めた位置を記録しておき、エリアを越えてリリースしても山なりを保たせる
+    playingState.pitchOriginX = nearBall ? null : point.x;
+    playingState.pitchOriginY = nearBall ? null : point.y;
     playingState.pitcherPointerId = event.pointerId;
     elements.playingSurface.setPointerCapture(event.pointerId);
     playingState.pitcherTrail = [];
@@ -3476,7 +3597,12 @@ function pushPlayingPitcherTrail(x, y, timeStamp) {
 }
 
 function getPlayingPitcherReleaseVector() {
-  return getTrailReleaseVector(playingState.pitcherTrail, 35);
+  return getTrailReleaseVectorWithGrace(
+    playingState.pitcherTrail,
+    35,
+    physics.pitchReleaseGraceMs,
+    physics.pitchReleaseGraceRatio,
+  );
 }
 
 function getReleaseCurveFromTrail(trail) {
