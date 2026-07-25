@@ -83,6 +83,8 @@ const playingState = {
   pitchOriginX: null,
   pitchOriginY: null,
   isPitched: false,
+  // この投球がピッチャーエリア（上半分）を出たか。出られなければ投げミス扱い。
+  pitchLeftPitcherArea: false,
   // ball physics (pitching-proto identical, Y-axis flipped: +Y = toward batter)
   isRunning: false,
   isBallActive: false,
@@ -532,6 +534,9 @@ const physics = {
   battingSwingDuration: 0.065,
   batContactRadius: 35,
   battingHitDragPerSecond: 1.1,
+  // 投げミス（ピッチャーエリアを出られなかった投球）後、投げ直しを受け付けるまでの間隔（ms）。
+  // 何も起きなかった扱いなので、通常のプレー終了より短くしてテンポを切らさない。
+  pitchMissRetryDelayMs: 350,
   // 拾って走者を刺しにいく送球の球速倍率。投球と打球は等倍のまま。
   // 速度と減衰を同率で落とすので、届く距離は変わらず到達までの時間だけ 1/倍率 に延びる。
   fielderThrowSpeedFactor: 0.6,
@@ -2393,15 +2398,17 @@ function updatePlayingCall(text, kind = "") {
   }
 
   elements.playingCall.textContent = text;
-  elements.playingCall.classList.remove("is-strike", "is-ball", "is-out");
+  elements.playingCall.classList.remove("is-strike", "is-ball", "is-out", "is-miss");
   if (kind) elements.playingCall.classList.add(kind);
 
-  if (text === "STRIKE" || text === "BALL") {
+  if (text === "STRIKE" || text === "BALL" || text === PITCH_MISS_TEXT) {
+    // 投げミスはカウントが動かないぶん見落としやすいので長めに出す
+    const holdMs = text === PITCH_MISS_TEXT ? 1000 : 550;
     setTimeout(() => {
       if (elements.playingCall.textContent === text) {
         updatePlayingCall("");
       }
-    }, 550);
+    }, holdMs);
   }
 }
 
@@ -3079,6 +3086,7 @@ function resetPlayingState() {
   playingState.pitchOriginX = null;
   playingState.pitchOriginY = null;
   playingState.isPitched = false;
+  playingState.pitchLeftPitcherArea = false;
   playingState.isBallActive = false;
   playingState.isHit = false;
   playingState.isResting = false;
@@ -3162,6 +3170,7 @@ function launchPlayingBall(vector) {
   playingState.isHomeRun = false;
   playingState.isPitched = true;
   playingState.pitchJudged = false;
+  playingState.pitchLeftPitcherArea = false;
   playingState.isDeepHit = false;
   playingState.restDelayElapsed = 0;
   playingState.isCornerHit = false;
@@ -3176,6 +3185,29 @@ function launchPlayingBall(vector) {
   updatePlayingCall("SWING!");
   elements.playingHint.textContent = "Batter: swing up!";
   updatePlayingDebug();
+}
+
+// ピッチャーエリアを出られなかった投球は「投げミス」。
+// 手が滑った・置いただけ、といった事故をカウントに残さないための扱い。
+function isPitchMiss() {
+  return (
+    playingState.isPitched &&
+    !playingState.isHit &&
+    !playingState.isFielderThrow &&
+    !playingState.pitchLeftPitcherArea
+  );
+}
+
+const PITCH_MISS_TEXT = "投げミス";
+
+function finishPitchAsMiss() {
+  // カウントは動かさない。judged を立てて以降の判定を止めるだけ。
+  playingState.pitchJudged = true;
+  playSfx("ball");
+  finishPlayingPitch(PITCH_MISS_TEXT);
+  updatePlayingCall(PITCH_MISS_TEXT, "is-miss");
+  // やり直しなので通常より短い間隔で次を受け付ける
+  playingState.nextPitchReadyAt = performance.now() + physics.pitchMissRetryDelayMs;
 }
 
 function finishPlayingPitch(message = "READY") {
@@ -3316,6 +3348,17 @@ function animatePlaying(timeStamp) {
     setPlayingBallPosition(playingState.ballX, playingState.ballY);
     // Playing プロトではオレンジ（contactable）表示不要
 
+    // 投球がピッチャーエリア（上半分）を出たかを記録する。
+    // 一度でも出ていれば正規の投球として判定し、出られなければ投げミス扱いにする。
+    if (
+      !playingState.pitchLeftPitcherArea &&
+      !playingState.isHit &&
+      !playingState.isFielderThrow &&
+      playingState.ballY >= rect.height * 0.5
+    ) {
+      playingState.pitchLeftPitcherArea = true;
+    }
+
     // 送球が走者に当たったか（アウトはこれだけ）
     if (!playingState.isHit) { // isFielderThrow も isHit=false なので通過する
       if (checkPlayingBallHitsRunners(previousX, previousY)) {
@@ -3381,6 +3424,13 @@ function animatePlaying(timeStamp) {
     // 投球がゾーン横を素通りした場合
     if (!playingState.pitchJudged && !playingState.isHit && !playingState.isFielderThrow) {
       if (playingState.ballX < -28 || playingState.ballX > rect.width + 28) {
+        if (isPitchMiss()) {
+          finishPitchAsMiss();
+          updatePlayingRunners(dt);
+          updatePlayingDebug();
+          playingState.animationFrameId = window.requestAnimationFrame(animatePlaying);
+          return;
+        }
         playingState.pitchJudged = true;
         updatePlayingCall("BALL", "is-ball");
         playSoundBall(); gameProcessBall();
@@ -3432,6 +3482,13 @@ function animatePlaying(timeStamp) {
     } else if (isRollStopped || isFlightStuck || isOutside) {
       // フィールダー送球は投球ではないためボールカウントに影響させない
       if (!playingState.pitchJudged && !playingState.isFielderThrow) {
+        if (isPitchMiss()) {
+          finishPitchAsMiss();
+          updatePlayingRunners(dt);
+          updatePlayingDebug();
+          playingState.animationFrameId = window.requestAnimationFrame(animatePlaying);
+          return;
+        }
         playingState.pitchJudged = true;
         updatePlayingCall("BALL", "is-ball");
         playSoundBall(); gameProcessBall();

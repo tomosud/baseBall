@@ -921,6 +921,20 @@ button {
   color: #ff6b63;
 }
 
+/* 投げミス: B/S/O が動かないぶん見落としやすいので、
+   別色 + 飛び出す動きで「今のは無効」だと分かるようにする */
+.playing-call.is-miss {
+  color: #ffb14a;
+  font-size: 1.9rem;
+  animation: pitch-miss-pop 0.3s ease-out;
+}
+
+@keyframes pitch-miss-pop {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(0.65); }
+  60%  { opacity: 1; transform: translate(-50%, -50%) scale(1.12); }
+  to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
 .playing-debug {
   top: calc(env(safe-area-inset-top) + 30px);
   left: calc(env(safe-area-inset-left) + 12px);
