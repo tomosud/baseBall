@@ -1415,15 +1415,28 @@ button {
   color: #4fc3f7;
 }
 
-/* 「デッドボール」表示: カウントは動かず、投げた側に点が入る */
+/* 「デッドボール」表示: カウントは動かず投げた側に点が入る特殊な結果なので、
+   飛び出したあとブルブル震え続けて目を引くようにする */
 .playing-call.is-dead {
   color: #ffd6ba;
-  font-size: 1.75rem;
-  animation: dead-ball-call 0.34s ease-out;
+  font-size: 2rem;
+  text-shadow: 0 0 14px rgba(255, 150, 110, 0.75), 0 4px 18px rgba(0, 0, 0, 0.8);
+  animation:
+    dead-ball-call 0.34s ease-out,
+    dead-ball-shake 0.09s linear 0.34s infinite;
 }
 
 @keyframes dead-ball-call {
   from { opacity: 0; transform: translate(-50%, -50%) scale(0.6); }
-  55%  { opacity: 1; transform: translate(-50%, -50%) scale(1.18); }
+  55%  { opacity: 1; transform: translate(-50%, -50%) scale(1.22); }
   to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+@keyframes dead-ball-shake {
+  0%   { transform: translate(calc(-50% - 3px), calc(-50% + 1px)) rotate(-1.4deg); }
+  20%  { transform: translate(calc(-50% + 3px), calc(-50% - 2px)) rotate(1.5deg); }
+  40%  { transform: translate(calc(-50% - 2px), calc(-50% + 3px)) rotate(-1.1deg); }
+  60%  { transform: translate(calc(-50% + 2px), calc(-50% + 2px)) rotate(1.3deg); }
+  80%  { transform: translate(calc(-50% - 3px), calc(-50% - 2px)) rotate(-1.5deg); }
+  100% { transform: translate(calc(-50% + 3px), calc(-50% - 1px)) rotate(1.2deg); }
 }

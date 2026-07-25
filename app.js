@@ -538,6 +538,9 @@ const physics = {
   battingSwingDuration: 0.065,
   batContactRadius: 35,
   battingHitDragPerSecond: 1.1,
+  // 「デッドボール」の表示時間（ms）。カウントが動かず得点だけ入る特殊な結果なので、
+  // 見落とさないよう他のコールよりかなり長く出す。
+  deadBallCallHoldMs: 3600,
   // デッドボール判定の半径（px）。バッターの指に出る輪の見た目と同じ値を使う。
   deadBallRadius: 26,
   // 得点が飛んでいく演出の時間（ms）
@@ -617,6 +620,9 @@ const physics = {
   // 中心円は塁（18px）の倍くらい、周囲の円はやや大きく取る。
   moundCenterRadius: 18,
   moundRadius: 46,
+  // マウンドの奥行き。0=2塁の位置、1=ディバイダー（バッター側の境界）。
+  // 小さいほどバッターから遠ざかる。
+  moundDepthRatio: 0.3,
   // --- 投球のエリア越え許容 ---
   // ピッチャーエリアを超える長いスワイプは指が終端で自然に緩むため、
   // 直近 35ms だけを見ると球速がほぼゼロになり「失速」して見える。
@@ -2411,7 +2417,9 @@ function updatePlayingCall(text, kind = "") {
 
   if (text === "STRIKE" || text === "BALL" || text === PITCH_MISS_TEXT || text === DEAD_BALL_TEXT) {
     // 投げミス／デッドボールはカウントが動かないぶん見落としやすいので長めに出す
-    const holdMs = text === "STRIKE" || text === "BALL" ? 550 : 1200;
+    const holdMs =
+      text === DEAD_BALL_TEXT ? physics.deadBallCallHoldMs :
+      text === PITCH_MISS_TEXT ? 1000 : 550;
     setTimeout(() => {
       if (elements.playingCall.textContent === text) {
         updatePlayingCall("");
@@ -2563,8 +2571,9 @@ function getPlayingMound(rect) {
   const centerRadius = radius * (physics.moundCenterRadius / physics.moundRadius);
 
   const secondBaseY = getPlayingBasePositions(rect)[1].y;
-  const raw = (secondBaseY + dividerY) * 0.5;
-  const minY = topWallY + radius + 12;
+  const raw = secondBaseY + (dividerY - secondBaseY) * physics.moundDepthRatio;
+  // 上壁からの余白に加えて、2塁と円が重ならない位置も下限にする
+  const minY = Math.max(topWallY + radius + 12, secondBaseY + radius + 18);
   const maxY = dividerY - radius - 8;
   // 画面が極端に低い場合でもピッチャーエリア内に収める（maxY を優先）
   return {
