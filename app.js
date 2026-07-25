@@ -271,6 +271,14 @@ const elements = {
   playingResetBtn: document.getElementById("playingResetBtn"),
 };
 
+// 青軍=犬 / 赤軍=猫。表示に使う名前はここから組み立てる。
+const TEAM_ICONS = ["🐶", "🐱"];
+const TEAM_NAMES = ["青軍", "赤軍"];
+
+function teamLabel(teamIdx) {
+  return `${TEAM_ICONS[teamIdx]}${TEAM_NAMES[teamIdx]}`;
+}
+
 // ---- Game State ----
 const gameState = {
   inning: 1,
@@ -336,8 +344,8 @@ function updateStatusBar() {
   oDots.forEach((d, i) => d.classList.toggle("is-on", i < gameState.outs));
 
   // チーム名ラベル（上半分=ピッチャーエリア、下半分=バッターエリア）
-  const pitcherName = gameState.isTop ? "赤軍" : "青軍";
-  const batterName  = gameState.isTop ? "青軍" : "赤軍";
+  const pitcherName = teamLabel(gameState.isTop ? 1 : 0);
+  const batterName  = teamLabel(gameState.isTop ? 0 : 1);
   elements.playingLabelPitcher.textContent = `${pitcherName}  PITCHER`;
   elements.playingLabelBatter.textContent  = `${batterName}  BATTER`;
 
@@ -421,17 +429,17 @@ function addRunForBattingTeam() {
 
 function gameProcessScore() {
   if (gameState.phase !== "playing") return;
+  const battingTeam = gameState.isTop ? 0 : 1;
   addRunForBattingTeam();
   saveGameToDB();
   playSfx("score");
-  updatePlayingCall("得点！", "is-strike");
+  // 得点はホームベースから、そのチームのスコア表示へ飛んでいく
+  const rect = elements.playingSurface.getBoundingClientRect();
+  const home = getPlayingHomePlate(rect);
+  flyScorePointToTeam(home.x, home.y, battingTeam, "+1 得点！");
   if (shouldEndOnWalkoff() && !hasPendingHomeRunScores()) {
     gameDoGameSet();
-    return;
   }
-  setTimeout(() => {
-    if (elements.playingCall.textContent === "得点！") updatePlayingCall("READY");
-  }, 1500);
 }
 
 function gameDoChange() {
@@ -489,10 +497,10 @@ function gameDoGameSet() {
   playSfx("gameEnd");
   const [blue, red] = gameState.score;
   let winner;
-  if (blue > red) winner = "青軍の勝ち！";
-  else if (red > blue) winner = "赤軍の勝ち！";
+  if (blue > red) winner = `${teamLabel(0)}の勝ち！`;
+  else if (red > blue) winner = `${teamLabel(1)}の勝ち！`;
   else winner = "引き分け！";
-  showOverlay("GAME SET!", `青軍 ${blue} - ${red} 赤軍\n${winner}`, true);
+  showOverlay("GAME SET!", `${teamLabel(0)} ${blue} - ${red} ${teamLabel(1)}\n${winner}`, true);
 }
 
 function showOverlay(message, sub, showButton) {
@@ -546,8 +554,8 @@ const physics = {
   deadBallCallHoldMs: 3600,
   // デッドボール判定の半径（px）。バッターの指に出る輪の見た目と同じ値を使う。
   deadBallRadius: 26,
-  // 得点が飛んでいく演出の時間（ms）
-  deadBallPointFlightMs: 700,
+  // 得点メッセージがスコア表示へ飛ぶ時間（ms）
+  scoreFlightMs: 700,
   // 投げミス（ピッチャーエリアを出られなかった投球）後、投げ直しを受け付けるまでの間隔（ms）。
   // 何も起きなかった扱いなので、通常のプレー終了より短くしてテンポを切らさない。
   pitchMissRetryDelayMs: 350,
@@ -3262,17 +3270,21 @@ function spawnDeadBallBurst(x, y) {
   }
 }
 
-// 得点をピッチャー側のスコア表示へ飛ばし、着いたところで加点する
-function flyDeadBallPointToScore(fromX, fromY, onArrive) {
+// 得点メッセージを、得点したチームのスコア表示へ飛ばす。
+// 着いた瞬間にスコアを弾ませて「入った」ことを見せる。
+// 加点そのものは呼び出し側で即座に済ませておく（飛行中にイニングが終わっても
+// 得点が消えないようにするため。演出の完了を待つと取りこぼす経路がある）。
+function flyScorePointToTeam(fromX, fromY, teamIdx, label) {
   const surfaceRect = elements.playingSurface.getBoundingClientRect();
-  const targetEl = gameState.isTop ? elements.statusTeamRed : elements.statusTeamBlue;
+  const targetEl = teamIdx === 0 ? elements.statusTeamBlue : elements.statusTeamRed;
+  const scoreEl = teamIdx === 0 ? elements.statusScoreBlue : elements.statusScoreRed;
   const targetRect = targetEl.getBoundingClientRect();
   const toX = targetRect.left - surfaceRect.left + targetRect.width * 0.5;
   const toY = targetRect.top - surfaceRect.top + targetRect.height * 0.5;
 
   const el = document.createElement("div");
-  el.className = `dead-ball-point ${gameState.isTop ? "team-red" : "team-blue"}`;
-  el.textContent = "+1";
+  el.className = `score-fly-point ${teamIdx === 0 ? "team-blue" : "team-red"}`;
+  el.textContent = label;
   el.style.left = `${fromX}px`;
   el.style.top = `${fromY}px`;
   elements.playingSurface.appendChild(el);
@@ -3280,12 +3292,17 @@ function flyDeadBallPointToScore(fromX, fromY, onArrive) {
   // 1フレーム置いてから transform を変えることで transition を確実に走らせる
   requestAnimationFrame(() => {
     el.style.transform = `translate(${toX - fromX}px, ${toY - fromY}px) scale(0.55)`;
+    el.style.opacity = "0.85";
   });
 
   setTimeout(() => {
     el.remove();
-    onArrive();
-  }, physics.deadBallPointFlightMs);
+    // 着弾: スコアを弾ませる
+    scoreEl.classList.remove("is-scored");
+    void scoreEl.offsetWidth;          // アニメーションを再生し直す
+    scoreEl.classList.add("is-scored");
+    setTimeout(() => scoreEl.classList.remove("is-scored"), 520);
+  }, physics.scoreFlightMs);
 }
 
 // 投球がバッターの指に当たった: ピッチャー側に1点
@@ -3297,18 +3314,17 @@ function triggerDeadBall(hitX, hitY) {
 
   finishPlayingPitch(DEAD_BALL_TEXT);
   updatePlayingCall(DEAD_BALL_TEXT, "is-dead");
-  playingState.nextPitchReadyAt = performance.now() + physics.deadBallPointFlightMs + 300;
+  playingState.nextPitchReadyAt = performance.now() + physics.scoreFlightMs + 300;
 
-  flyDeadBallPointToScore(hitX, hitY, () => {
-    if (gameState.phase !== "playing") return;
-    addRunForPitchingTeam();
-    playSfx("score");
-    saveGameToDB();
-    if (shouldEndOnWalkoff() && !hasPendingHomeRunScores()) gameDoGameSet();
-  });
+  const pitchingTeam = gameState.isTop ? 1 : 0;
+  addRunForPitchingTeam();
+  playSfx("score");
+  saveGameToDB();
+  flyScorePointToTeam(hitX, hitY, pitchingTeam, "+1");
+  if (shouldEndOnWalkoff() && !hasPendingHomeRunScores()) gameDoGameSet();
 
   // 指がまだ乗っていれば輪は復活する
-  setTimeout(() => updateBatterFingerRing(), physics.deadBallPointFlightMs);
+  setTimeout(() => updateBatterFingerRing(), physics.scoreFlightMs);
 }
 
 // 守備側（投げている側）に1点。表=青軍攻撃なので、投げているのは裏返しのチーム。
