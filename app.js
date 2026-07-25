@@ -2700,7 +2700,7 @@ function updatePlayingRunners(dt) {
         !playingState.isBallActive
       ) {
         const ballDist = Math.hypot(playingState.ballX - target.x, playingState.ballY - target.y);
-        if (ballDist <= PLAYING_BASE_STATIC_OUT_RADIUS) {
+        if (ballDist <= getBaseOutRadius(runner.toBaseIndex, bases.length, true)) {
           const baseElArr = [elements.playingBase0, elements.playingBase1, elements.playingBase2];
           const baseEl = runner.toBaseIndex < bases.length ? baseElArr[runner.toBaseIndex] : elements.playingHomeBase;
           applyBaseOut(runner, baseEl);
@@ -2815,14 +2815,27 @@ function updatePlayingThrowTargets() {
   });
 }
 
-// 送球アウト判定の当たり半径（全塁統一。大きいほどアウトを取りやすい）
-// 飛んでいる送球が塁に届いたときの半径。視覚インジケーターの最大スケールに合わせる。
-const PLAYING_BASE_HIT_RADIUS = 30;
+// 送球アウト判定の当たり半径。
+// 1〜3塁は周囲の円をやめて塁自体を点滅させる表示に変えたので、判定も塁そのものの
+// 大きさに寄せて絞る（塁は18px角＝対角の半分12.7px）。狙って当てる必要がある。
+// ホーム（点が入る最後の塁）だけは周囲の円ごと従来の広さを維持する。
+const PLAYING_BASE_HIT_RADIUS = 20;
+const PLAYING_HOME_HIT_RADIUS = 30;
 // 「送球していないのに成立するアウト」用の半径。
 // - 塁の上に転がって止まったボールを拾っただけ
 // - 止まっているボールの側へ走者が飛び込んだだけ
 // これらは守備側の操作を伴わないタダ取りアウトなので、判定を絞って走者を守る。
-const PLAYING_BASE_STATIC_OUT_RADIUS = 18;
+const PLAYING_BASE_STATIC_OUT_RADIUS = 14;
+const PLAYING_HOME_STATIC_OUT_RADIUS = 18;
+
+// idx が塁の数と等しいときがホーム（点が入る最後の塁）
+function getBaseOutRadius(idx, baseCount, isStatic) {
+  const isHome = idx >= baseCount;
+  if (isStatic) {
+    return isHome ? PLAYING_HOME_STATIC_OUT_RADIUS : PLAYING_BASE_STATIC_OUT_RADIUS;
+  }
+  return isHome ? PLAYING_HOME_HIT_RADIUS : PLAYING_BASE_HIT_RADIUS;
+}
 
 // アウト処理の共通ロジック（checkPlayingBallHitsBases / checkBallAtThrowTargetOnPickup / advanceToNextInRoute から呼ばれる）
 function applyBaseOut(outRunner, baseEl) {
@@ -2895,9 +2908,9 @@ function checkPlayingBallHitsBases() {
     );
     if (runnerIndex === -1) continue;
 
-    // ヒット半径: 視覚インジケーターのアニメーション最大スケールに合わせて統一
+    // ヒット半径: 1〜3塁は塁そのものの大きさ寄り、ホームだけ広い
     const dist = Math.hypot(playingState.ballX - pos.x, playingState.ballY - pos.y);
-    if (dist > PLAYING_BASE_HIT_RADIUS) continue;
+    if (dist > getBaseOutRadius(idx, bases.length, false)) continue;
 
     // アウト!
     applyBaseOut(playingState.runners[runnerIndex], el);
@@ -2929,7 +2942,7 @@ function checkBallAtThrowTargetOnPickup() {
     if (runnerIndex === -1) continue;
 
     const dist = Math.hypot(playingState.ballX - pos.x, playingState.ballY - pos.y);
-    if (dist > PLAYING_BASE_STATIC_OUT_RADIUS) continue;
+    if (dist > getBaseOutRadius(idx, bases.length, true)) continue;
 
     // アウト!
     applyBaseOut(playingState.runners[runnerIndex], el);

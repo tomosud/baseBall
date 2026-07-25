@@ -1220,7 +1220,8 @@ button {
   box-shadow: 0 0 6px rgba(255, 255, 255, 0.3);
 }
 
-.playing-base.is-throw-target::before {
+/* ホーム（点が入る最後の塁）だけは従来どおり周囲の円で示す */
+#playingHomeBase.is-throw-target::before {
   content: "";
   position: absolute;
   inset: -25px;
@@ -1230,13 +1231,6 @@ button {
   box-shadow: 0 0 12px rgba(255, 59, 48, 0.46);
   animation: throw-target-pulse 0.72s ease-in-out infinite alternate;
   pointer-events: none;
-}
-
-#playingBase0.is-throw-target::before,
-#playingBase1.is-throw-target::before,
-#playingBase2.is-throw-target::before {
-  inset: -7px;
-  border-radius: 0;
 }
 
 @keyframes throw-target-pulse {
@@ -1251,10 +1245,39 @@ button {
   }
 }
 
+/* 1〜3塁は周囲の円をやめ、塁そのものを赤く点滅させる。
+   狙う的が塁の大きさと一致するので、絞った当たり判定と見た目が食い違わない。 */
+#playingBase0.is-throw-target,
+#playingBase1.is-throw-target,
+#playingBase2.is-throw-target {
+  animation: base-target-blink 0.66s linear infinite;
+}
+
+@keyframes base-target-blink {
+  0%,
+  44% {
+    background: rgba(255, 255, 255, 0.72);
+    box-shadow: 0 0 6px rgba(255, 255, 255, 0.3);
+  }
+
+  50%,
+  100% {
+    background: rgba(255, 59, 48, 0.95);
+    box-shadow: 0 0 16px rgba(255, 59, 48, 0.85);
+  }
+}
+
 .playing-base.is-tagged {
   background: rgba(255, 59, 48, 0.9);
   box-shadow: 0 0 14px rgba(255, 59, 48, 0.7);
   transition: background 0.15s, box-shadow 0.15s;
+}
+
+/* アウトのフラッシュは点滅より優先する（点滅アニメが赤フラッシュを上書きしないように） */
+#playingBase0.is-tagged,
+#playingBase1.is-tagged,
+#playingBase2.is-tagged {
+  animation: none;
 }
 
 /* ===== Playing runners ===== */
