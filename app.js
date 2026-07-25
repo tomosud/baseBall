@@ -396,6 +396,7 @@ function gameProcessOut(reason) {
   saveGameToDB();
   if (gameState.outs >= 3) {
     gameState.phase = "change";
+    updateBatterFingerRing();
     playingState.isRunning = false;
     playingState.isBallActive = false;
     playingState.isPitched = false;
@@ -436,6 +437,7 @@ function gameProcessScore() {
 function gameDoChange() {
   if (gameState.phase !== "playing" && gameState.phase !== "change") return;
   gameState.phase = "change";
+  updateBatterFingerRing();
 
   // チェンジ: プレイを停止してオーバーレイ表示
   playingState.isRunning = false;
@@ -477,6 +479,7 @@ function gameDoChange() {
 
 function gameDoGameSet() {
   gameState.phase = "gameset";
+  updateBatterFingerRing();
   gameState.playToken++;
   clearSaveData();
   playingState.isRunning = false;
@@ -2405,11 +2408,18 @@ function isPlayingBallInContactBand() {
   return playingState.ballY >= zone.top - physics.battingContactTopAllowance && playingState.ballY <= zone.bottom;
 }
 
+// 表示ごとの通し番号。同じ文言を出し直したとき、古いタイマーが新しい表示を
+// 消してしまうのを防ぐ（デッドボール連続時に2回目の表示が途中で切れていた）。
+let playingCallToken = 0;
+
 function updatePlayingCall(text, kind = "") {
   if (text === "HIT" || text === "SWING!" || text === "READY") {
     text = "";
     kind = "";
   }
+
+  playingCallToken += 1;
+  const token = playingCallToken;
 
   elements.playingCall.textContent = text;
   elements.playingCall.classList.remove("is-strike", "is-ball", "is-out", "is-miss", "is-dead");
@@ -2421,7 +2431,7 @@ function updatePlayingCall(text, kind = "") {
       text === DEAD_BALL_TEXT ? physics.deadBallCallHoldMs :
       text === PITCH_MISS_TEXT ? 1000 : 550;
     setTimeout(() => {
-      if (elements.playingCall.textContent === text) {
+      if (token === playingCallToken) {
         updatePlayingCall("");
       }
     }, holdMs);
@@ -3210,7 +3220,11 @@ function launchPlayingBall(vector) {
 // バッターの指に出す輪。見た目の半径と判定半径を同じ値から作り、ズレないようにする。
 function updateBatterFingerRing() {
   const el = elements.playingBatterFinger;
-  const show = playingState.batterPointerId !== null && !playingState.inPlay;
+  // 投球できる状態のときだけ出す。チェンジや試合終了中に輪が残らないようにする。
+  const show =
+    playingState.batterPointerId !== null &&
+    !playingState.inPlay &&
+    gameState.phase === "playing";
 
   el.classList.toggle("is-hidden", !show);
   if (!show) return;
@@ -3712,6 +3726,8 @@ function updatePlayingMode() {
   } else {
     if (wasRunnerMode) {
       // 通常モード復帰時のみUI切替
+      // 走者モード突入時に輪を隠しているので、指が乗ったままなら戻す
+      updateBatterFingerRing();
       updatePlayingMoundDOM();
       elements.playingMound.classList.remove("is-hidden");
       elements.playingDivider.classList.remove("is-hidden");
