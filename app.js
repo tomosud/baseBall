@@ -536,7 +536,15 @@ const physics = {
   // フィールダー送球が壁に当たったときの反発。打球（0.62）よりずっと低く、
   // 跳ね返らずにその場へ落ちる。壁を使った偶然の送球が成立しないようにする。
   fielderThrowEdgeBounceRestitution: 0.16,
+  // 強い打球（青表示）の速度しきい値。見た目のみで、ホームラン判定には使わない。
   homeRunSpeedThreshold: 200,
+  // ホームランに必要な「上壁到達時の残り飛距離 ÷ 本塁〜上壁の距離」。
+  // 盤面に対する比で判定することで、画面の高さが変わっても難度が変わらない。
+  homeRunClearRatio: 0.18,
+  // ホームランに必要な当たりの質（芯度×スクエア度、0〜1）。
+  // 打球速度は px/s の絶対値なので、盤面が小さい画面ほど上の比率条件は緩くなる。
+  // 無次元の当たりの質でも門番することで、画面サイズによらず「芯で捉えた一撃」に絞る。
+  homeRunHitQuality: 0.8,
   ballRadius: 7,
   batHitPowerScale: 0.55,
   batMoveScale: 1,
@@ -3012,6 +3020,16 @@ function getPlayingTopWallY() {
   return wallRect.bottom - surfaceRect.top;
 }
 
+// 上壁に達した打球がホームランに足りているかを 1.0 基準で返す。
+// 残りの飛距離（速度÷減衰）が、本塁〜上壁の距離の homeRunClearRatio 倍あれば 1 以上。
+// 盤面の大きさに対する比で見るので、画面の高さが変わっても難度が動かない。
+function getHomeRunClearance(model, rect) {
+  const drag = model.hitDrag || physics.battingHitDragPerSecond;
+  const fieldDepth = Math.max(1, getPlayingHomePlate(rect).y - getPlayingTopWallY());
+  const remainingReach = model.currentSpeed / drag;
+  return remainingReach / (physics.homeRunClearRatio * fieldDepth);
+}
+
 function applyPlayingEdgeBounce(rect) {
   const model = playingState;
   const margin = 8;
@@ -3038,7 +3056,13 @@ function applyPlayingEdgeBounce(rect) {
   }
 
   if (model.ballY <= topWallY && model.velocityY < 0) {
-    const isBlueHit = model.isHit && model.currentSpeed >= physics.homeRunSpeedThreshold;
+    // ホームランは「上壁を越える時点で、さらに盤面の何割ぶん飛べるか」で判定する。
+    // 絶対速度で判定していたときは、本塁から上壁までの距離が画面の高さで決まるため、
+    // 低い画面ではHRが頻発し、高い画面では最大打球でも一本も出なかった。
+    const isBlueHit =
+      model.isHit &&
+      getHomeRunClearance(model, rect) >= 1 &&
+      (model.lastHitQuality ?? 0) >= physics.homeRunHitQuality;
     if (isBlueHit || playingState.isHomeRun) {
       // 青い打球は上辺で反射せず突き抜ける（ホームラン）
       if (isBlueHit && !playingState.isHomeRun) {
