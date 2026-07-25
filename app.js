@@ -598,6 +598,11 @@ const physics = {
   hitBallCurveDecayRate: 1.5,
   // 打球カーブ適用の最小加速度閾値
   hitBallCurveThreshold: 0.5,
+  // 守備中の画面分割。この比率より下だけが走者の連打エリアで、
+  // それより上はすべて守備（拾う・投げる）の領域になる。
+  // 連打エリアを狭めることで、送球が走者側の指の近くを通ったときに
+  // 誤ってボールを拾ってしまう事故も減る。
+  runnerBoostAreaTopRatio: 0.75,
   // 走者の基本速度（px/s）: タップしないと割と遅い
   runnerBaseSpeed: 78,
   // フォアボール自動進塁の速度（px/s）: タップ無効なので待たせないよう速め
@@ -2861,10 +2866,14 @@ function updatePlayingThrowTargets() {
                    elements.playingRunnerRing2, elements.playingRunnerRing3];
   const runnerEls = [elements.playingRunner0, elements.playingRunner1,
                      elements.playingRunner2, elements.playingRunner3];
+  // ホームラン中は打球が場外へ抜けていて守備が手を出せないので、狙える走者はいない
+  const canTag = !playingState.isHomeRun;
+  let anyTaggable = false;
 
   runnerEls.forEach((el, index) => {
     const runner = playingState.runners[index];
-    const taggable = !!runner && runner.state === "running" && !runner.fromWalk;
+    const taggable = canTag && !!runner && runner.state === "running" && !runner.fromWalk;
+    if (taggable) anyTaggable = true;
     el.classList.toggle("is-target", taggable);
 
     const ring = ringEls[index];
@@ -2874,6 +2883,9 @@ function updatePlayingThrowTargets() {
       ring.style.top = `${runner.y}px`;
     }
   });
+
+  // 「走者に当てろ！」は狙える走者がいるときだけ出す
+  elements.playingTagLabel.classList.toggle("is-hidden", !anyTaggable);
 }
 
 // 走者に当てる判定の半径（走者スプライトは34x20px）。
@@ -3722,6 +3734,8 @@ function updatePlayingMode() {
   const wasRunnerMode = !elements.playingRunLabel.classList.contains("is-hidden");
   // 走者ブーストのタップエリア表示: ブーストが効く状況（インプレー中の走者あり）のみ
   // フォアボール進塁（inPlay=false）ではタップが無効なので表示しない
+  // 表示の高さは判定と同じ比率から作り、見た目と当たり判定をズラさない
+  elements.runnerBoostArea.style.height = `${(1 - physics.runnerBoostAreaTopRatio) * 100}%`;
   elements.runnerBoostArea.classList.toggle("is-hidden", !(running && playingState.inPlay));
   if (running) {
     if (!wasRunnerMode) {
@@ -3733,7 +3747,6 @@ function updatePlayingMode() {
       elements.playingLabelPitcher.classList.add("is-hidden");
       elements.playingLabelBatter.classList.add("is-hidden");
       elements.playingRunLabel.classList.remove("is-hidden");
-      elements.playingTagLabel.classList.remove("is-hidden");
       elements.playingHint.textContent = "拾って走者にぶつけるとアウト";
       elements.playingStrikeZone.classList.add("is-hidden");
       elements.playingHomeBase.classList.remove("is-hidden");
@@ -3797,7 +3810,7 @@ function beginPlayingPointer(event) {
     // 飲み込まれ、送球モーション中だけ連打が無効になっていた。
     if (!nearBall && playingState.inPlay) {
       const surfaceRect = elements.playingSurface.getBoundingClientRect();
-      if (point.y >= surfaceRect.height * 0.5) {
+      if (point.y >= surfaceRect.height * physics.runnerBoostAreaTopRatio) {
         applyRunnerBoostTap(point.x, point.y);
         return;
       }

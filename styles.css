@@ -387,13 +387,15 @@ button {
   box-shadow: 0 0 14px rgba(79, 195, 247, 0.85);
 }
 
-/* 走者ブーストのタップエリア（下半分）: 薄い波線の境界と誘導ラベル */
+/* 走者ブーストのタップエリア（画面下部）: 薄い波線の境界と誘導ラベル */
+/* 連打エリア。高さは app.js が physics.runnerBoostAreaTopRatio から設定する
+   （ここの値は初期表示用のフォールバック） */
 .runner-boost-area {
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
-  height: 50%;
+  height: 25%;
   pointer-events: none;
   background:
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='8'%3E%3Cpath d='M0 4 Q 6 0, 12 4 T 24 4' fill='none' stroke='rgba(255,255,255,0.28)' stroke-width='1.5'/%3E%3C/svg%3E")
