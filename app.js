@@ -553,7 +553,7 @@ const physics = {
   // 見落とさないよう他のコールよりかなり長く出す。
   deadBallCallHoldMs: 3600,
   // デッドボール判定の半径（px）。バッターの指に出る輪の見た目と同じ値を使う。
-  deadBallRadius: 26,
+  deadBallRadius: 20.8,
   // 得点メッセージがスコア表示へ飛ぶ時間（ms）
   scoreFlightMs: 700,
   // 投げミス（ピッチャーエリアを出られなかった投球）後、投げ直しを受け付けるまでの間隔（ms）。
@@ -3781,10 +3781,14 @@ function beginPlayingPointer(event) {
   const point = getPlayingSurfacePoint(event);
   if (isTopHalf(point.y)) {
     // ピッチャー側
-    // ピックアップ判定: ヒット or フィールダースローが赤くなった（isResting）後のみ拾える
-    // ボール位置に十分近い場合のみピックアップ可
+    // ピックアップ判定:
+    // - 打球は今までどおり、止まって赤くなる（isResting）まで拾えない。
+    //   深い打球・コーナー打球の遅延もこの isResting に含まれる。
+    // - 一度投げたあとの球（フィールダースロー）は、飛行中でも転がっている
+    //   最中でもいつでも拾い直せる。ドラッグ距離の制限は従来どおり掛かる。
     const ballOnField =
-      (playingState.isHit || playingState.isFielderThrow) && playingState.isResting;
+      playingState.isFielderThrow ||
+      (playingState.isHit && playingState.isResting);
     const nearBall = ballOnField &&
       Math.hypot(point.x - playingState.ballX, point.y - playingState.ballY) <= 36;
 
