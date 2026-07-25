@@ -95,6 +95,8 @@ const playingState = {
   ballY: 0,
   velocityX: 0,
   velocityY: 0,
+  // この球に適用する飛行中の抗力。球速倍率と同率で下げることで軌道の形を保つ。
+  flightDrag: 0,
   curveAccelerationX: 0,
   curveRampDuration: 1,
   currentSpeed: 0,
@@ -580,6 +582,10 @@ const physics = {
   cornerZoneHeight: 70,
   // コーナーゾーンに届いた打球が拾えるまでの遅延（秒）: 深い打球よりさらに長い
   cornerZonePickupDelay: 1.2,
+  // 走者が塁にいるときの投球速度倍率（セットポジション相当）。
+  // 速度と抗力を同率で落とすので、到達距離は変わらず滞空時間だけ 1/倍率 に延びる。
+  // フィールダー送球には掛けない（守備が成立しなくなるため）。
+  pitchSpeedFactorWithRunners: 0.6,
   // --- ピッチャーマウンド ---
   // 通常投球はこの円の中からしか開始できない。ゲームの流れの中での
   // 意図しないタップが投球開始になってしまうのを防ぐ。
@@ -890,6 +896,15 @@ function launchPitchModel(model, vector, zone, options = {}) {
     model.velocityY *= minScale;
   }
 
+  // 球速倍率。速度と抗力を同じ率で落とすことで、到達距離（速度÷抗力）を保ったまま
+  // 軌道を時間方向に引き伸ばす。速度だけ落とすと本塁に届かず必ずバウンドしてしまう。
+  const speedFactor = options.speedFactor ?? 1;
+  if (speedFactor !== 1) {
+    model.velocityX *= speedFactor;
+    model.velocityY *= speedFactor;
+  }
+  model.flightDrag = physics.dragPerSecond * speedFactor;
+
   model.flightGravity = Math.max(120, physics.heightGravity - Math.min(90, scaledSpeed * 0.018));
 
   const baseHeight = Math.min(92, physics.releaseHeight + scaledSpeed * physics.releaseHeightSpeedFactor * 2.2);
@@ -897,7 +912,8 @@ function launchPitchModel(model, vector, zone, options = {}) {
   const zoneCenterY = (zone.top + zone.bottom) * 0.5;
   const distToZone = Math.max(0, (zoneCenterX - model.ballX) * rdX + (zoneCenterY - model.ballY) * rdY);
   const travelSpeed = Math.hypot(model.velocityX, model.velocityY);
-  const drag = physics.dragPerSecond;
+  // 遅い球ほど滞空時間が延びるので、山なりの高さもこの球の抗力から見積もる
+  const drag = model.flightDrag;
   const arcHeightForDistance = (distance) =>
     travelSpeed > distance * drag
       ? 0.5 * model.flightGravity * (-Math.log(1 - (distance * drag) / travelSpeed) / drag) ** 2 * 1.1
@@ -918,7 +934,11 @@ function launchPitchModel(model, vector, zone, options = {}) {
     );
   }
 
-  model.initialHeight = Math.min(400, Math.max(baseHeight, minHeightForZone));
+  // 山なりの上限。滞空時間は速度倍率の逆数で延びるので、必要な高さは倍率の2乗で増える。
+  // 上限を同じ率で緩めないと、遅い球だけが本塁前で落ちて「同じスワイプなのに判定が変わる」。
+  // playing 画面では高さを描画しないため、上限を上げても見た目には影響しない。
+  const maxArcHeight = 400 / (speedFactor * speedFactor);
+  model.initialHeight = Math.min(maxArcHeight, Math.max(baseHeight, minHeightForZone));
   model.height = model.initialHeight;
   model.heightVelocity = 0;
   model.flightElapsed = 0;
@@ -3101,6 +3121,7 @@ function resetPlayingState() {
   playingState.pitchRawSpeed = 0;
   playingState.velocityX = 0;
   playingState.velocityY = 0;
+  playingState.flightDrag = physics.dragPerSecond;
   playingState.height = 0;
   playingState.initialHeight = 0;
   playingState.heightVelocity = 0;
@@ -3150,11 +3171,15 @@ function resetPlayingState() {
 function launchPlayingBall(vector) {
   playSoundWhoosh();
   // 通常投球のみエリア越え許容（山なり維持）を適用する。フィールダー送球は素直な直線。
-  const arcOptions =
+  const launchOptions =
     !playingState.isFielderThrow && playingState.pitchOriginX !== null
       ? { arcOriginX: playingState.pitchOriginX, arcOriginY: playingState.pitchOriginY }
       : {};
-  const launch = launchPitchModel(playingState, vector, getPlayingStrikeZoneRect(), arcOptions);
+  // 走者が塁にいる投球だけ球速を落とす。送球（フィールダースロー）は等倍のまま。
+  if (!playingState.isFielderThrow && hasRunnersOnBase()) {
+    launchOptions.speedFactor = physics.pitchSpeedFactorWithRunners;
+  }
+  const launch = launchPitchModel(playingState, vector, getPlayingStrikeZoneRect(), launchOptions);
   // 拾って投げた送球だけが「生きた送球」。壁に触れるまでの間だけアウトを取れる。
   playingState.throwIsLive = playingState.isFielderThrow;
   playingState.pitchRawSpeed = clamp(launch.scaledSpeed, physics.battingMinRawSpeed, physics.battingMaxRawSpeed);
@@ -3251,7 +3276,7 @@ function animatePlaying(timeStamp) {
     if (!playingState.isHit && !playingState.isFielderThrow) {
       if (playingState.motionMode === "flight") {
         playingState.flightElapsed += dt;
-        const dragFactor = Math.exp(-physics.dragPerSecond * dt);
+        const dragFactor = Math.exp(-(playingState.flightDrag || physics.dragPerSecond) * dt);
         const sideDragFactor = Math.exp(-physics.sideDragPerSecond * dt);
         playingState.velocityX *= sideDragFactor;
         playingState.velocityY *= dragFactor;
@@ -3486,6 +3511,11 @@ function getPlayingSurfacePoint(event) {
 
 function hasActiveRunners() {
   return playingState.runners.some((r) => r.state === "running");
+}
+
+// 塁上に走者がいるか（投球速度を落とす条件）
+function hasRunnersOnBase() {
+  return playingState.runners.some((r) => r.state !== "out" && r.state !== "scored");
 }
 
 function updatePlayingMode() {
