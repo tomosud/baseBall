@@ -152,6 +152,9 @@ const playingState = {
   isCornerHit: false,
   // fielder throw state
   isFielderThrow: false,
+  // 送球が「生きている」か。拾って投げた瞬間に true、壁に触れた時点で false。
+  // 生きた送球が塁に届いたときだけアウトになる（壁の跳ね返りでの偶然アウトを排除）。
+  throwIsLive: false,
   wasPickedUp: false,
   pickupX: 0,
   pickupY: 0,
@@ -524,6 +527,9 @@ const physics = {
   battingStopSpeed: 18,
   battingRestSpeed: 90,
   battingEdgeBounceRestitution: 0.62,
+  // フィールダー送球が壁に当たったときの反発。打球（0.62）よりずっと低く、
+  // 跳ね返らずにその場へ落ちる。壁を使った偶然の送球が成立しないようにする。
+  fielderThrowEdgeBounceRestitution: 0.16,
   homeRunSpeedThreshold: 200,
   ballRadius: 7,
   batHitPowerScale: 0.55,
@@ -2628,12 +2634,13 @@ function updatePlayingRunners(dt) {
       runner.y = target.y;
       playSfx("baseReach");
 
-      // フィールダースローが静止している塁にランナーが到達した場合はアウト
+      // 生きた送球が静止している塁にランナーが到達した場合はアウト
       // （isBallActive=false で checkPlayingBallHitsBases が動かない状態をカバー）
       if (
         !runner.fromWalk &&
         !playingState.isHit &&
         playingState.isFielderThrow &&
+        playingState.throwIsLive &&
         playingState.isResting &&
         !playingState.isBallActive
       ) {
@@ -2787,11 +2794,13 @@ function applyBaseOut(outRunner, baseEl) {
       playingState.runnerBoost,
       physics.runnerBoostMax * physics.runnerBoostOnOutRatio,
     );
-    // 走者がまだいる → ボールを残してフィールダーが拾い直せる状態に
+    // 走者がまだいる → ボールを残してフィールダーが拾い直せる状態に。
+    // アウトを取った送球はここで死ぬ。次の走者を刺すには拾って投げ直す必要がある。
     updatePlayingCall("OUT!", "is-out");
     gameProcessOut("OUT!");
     playingState.isHit = false;
     playingState.isFielderThrow = true;
+    playingState.throwIsLive = false;
     playingState.isResting = true;
     playingState.isBallActive = false;
     playingState.isPitched = false;
@@ -2801,6 +2810,7 @@ function applyBaseOut(outRunner, baseEl) {
     playingState.isBallActive = false;
     playingState.isPitched = false;
     playingState.isFielderThrow = false;
+    playingState.throwIsLive = false;
     hidePlayingBall();
     updatePlayingCall("OUT!", "is-out");
     gameProcessOut("OUT!");
@@ -2809,6 +2819,9 @@ function applyBaseOut(outRunner, baseEl) {
 
 function checkPlayingBallHitsBases() {
   if (!playingState.isBallActive || playingState.isHit) return false;
+  // 拾って投げた「生きた送球」だけが塁に入ったことになる。
+  // 壁に当たって跳ね返った球は、拾い直して投げ直すまでアウトを取れない。
+  if (!playingState.throwIsLive) return false;
 
   const rect = elements.playingSurface.getBoundingClientRect();
   const bases = getPlayingBasePositions(rect);
@@ -2839,8 +2852,11 @@ function checkPlayingBallHitsBases() {
   return false;
 }
 
-// ボールが throw target 上で静止している状態でピックアップされた時のアウト判定
+// ボールが throw target 上で静止している状態でピックアップされた時のアウト判定。
+// 生きた送球がその塁で止まった場合のみ成立する（壁跳ね返りや打球が転がり込んだ球は対象外）。
 function checkBallAtThrowTargetOnPickup() {
+  if (!playingState.throwIsLive) return false;
+
   const rect = elements.playingSurface.getBoundingClientRect();
   const bases = getPlayingBasePositions(rect);
   const home = getPlayingHomePlate(rect);
@@ -2917,15 +2933,25 @@ function applyPlayingEdgeBounce(rect) {
   const model = playingState;
   const margin = 8;
   const topWallY = getPlayingTopWallY();
+  // 送球は壁でほぼ死ぬ。打球は従来どおり跳ね返る。
+  const restitution = model.isFielderThrow
+    ? physics.fielderThrowEdgeBounceRestitution
+    : physics.battingEdgeBounceRestitution;
+  // 壁に触れた送球は「生きた送球」ではなくなる（拾い直して投げ直すまでアウトにできない）
+  const killThrow = () => {
+    playingState.throwIsLive = false;
+  };
 
   if (model.ballX <= margin && model.velocityX < 0) {
     model.ballX = margin;
-    model.velocityX *= -physics.battingEdgeBounceRestitution;
-    model.velocityY *= physics.battingEdgeBounceRestitution;
+    model.velocityX *= -restitution;
+    model.velocityY *= restitution;
+    killThrow();
   } else if (model.ballX >= rect.width - margin && model.velocityX > 0) {
     model.ballX = rect.width - margin;
-    model.velocityX *= -physics.battingEdgeBounceRestitution;
-    model.velocityY *= physics.battingEdgeBounceRestitution;
+    model.velocityX *= -restitution;
+    model.velocityY *= restitution;
+    killThrow();
   }
 
   if (model.ballY <= topWallY && model.velocityY < 0) {
@@ -2937,9 +2963,10 @@ function applyPlayingEdgeBounce(rect) {
       }
     } else {
       model.ballY = topWallY;
-      model.velocityY *= -physics.battingEdgeBounceRestitution;
-      model.velocityX *= physics.battingEdgeBounceRestitution;
+      model.velocityY *= -restitution;
+      model.velocityX *= restitution;
       playSfx("wallBounce");
+      killThrow();
       // 上壁まで届いた打球は「深い打球」: 静止後もしばらく拾えない（外野の再現）
       if (model.isHit) {
         playingState.isDeepHit = true;
@@ -2947,9 +2974,10 @@ function applyPlayingEdgeBounce(rect) {
     }
   } else if (model.ballY >= rect.height - margin && model.velocityY > 0) {
     model.ballY = rect.height - margin;
-    model.velocityY *= -physics.battingEdgeBounceRestitution;
-    model.velocityX *= physics.battingEdgeBounceRestitution;
+    model.velocityY *= -restitution;
+    model.velocityX *= restitution;
     playSfx("wallBounce");
+    killThrow();
   }
 }
 
@@ -2994,6 +3022,8 @@ function resetPlayingState() {
   playingState.isHit = false;
   playingState.isResting = false;
   playingState.isHomeRun = false;
+  playingState.isFielderThrow = false;
+  playingState.throwIsLive = false;
   playingState.wasPickedUp = false;
   playingState.pickupX = 0;
   playingState.pickupY = 0;
@@ -3057,6 +3087,8 @@ function launchPlayingBall(vector) {
       ? { arcOriginX: playingState.pitchOriginX, arcOriginY: playingState.pitchOriginY }
       : {};
   const launch = launchPitchModel(playingState, vector, getPlayingStrikeZoneRect(), arcOptions);
+  // 拾って投げた送球だけが「生きた送球」。壁に触れるまでの間だけアウトを取れる。
+  playingState.throwIsLive = playingState.isFielderThrow;
   playingState.pitchRawSpeed = clamp(launch.scaledSpeed, physics.battingMinRawSpeed, physics.battingMaxRawSpeed);
   playingState.isBallActive = true;
   playingState.isHit = false;
@@ -3095,6 +3127,7 @@ function finishPlayingPitch(message = "READY") {
   playingState.pickupX = 0;
   playingState.pickupY = 0;
   playingState.isFielderThrow = false;
+  playingState.throwIsLive = false;
   playingState.isResting = false;
   playingState.isDeepHit = false;
   playingState.restDelayElapsed = 0;
@@ -3472,6 +3505,8 @@ function beginPlayingPointer(event) {
       playingState.pitchJudged = false;
       playingState.swingMissed = false;
       playingState.wasPickedUp = true;
+      // 拾った瞬間は「まだ投げていない」。投げ直すまでアウトは取れない。
+      playingState.throwIsLive = false;
       playingState.pickupX = point.x;
       playingState.pickupY = point.y;
       playingState.isDeepHit = false;
