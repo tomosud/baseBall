@@ -3185,6 +3185,7 @@ function resetPlayingState() {
   elements.playingBall.classList.remove("is-resting", "is-deep-delay");
   elements.playingContactMissMarker.classList.add("is-hidden");
   updateContactableBall(elements.playingBall, false);
+  updatePlayingAreaSplit(false);
   hidePlayingBall();
   renderPlayingRunners();
   const batPos = getDefaultPlayingBatPosition();
@@ -3740,6 +3741,7 @@ function updatePlayingMode() {
   if (running) {
     if (!wasRunnerMode) {
       // 走者モード突入時のみUI切替
+      updatePlayingAreaSplit(true);
       // 打った直後は指が乗ったままなので、デッドボールの輪をここで確実に消す
       elements.playingBatterFinger.classList.add("is-hidden");
       elements.playingMound.classList.add("is-hidden");
@@ -3755,6 +3757,7 @@ function updatePlayingMode() {
   } else {
     if (wasRunnerMode) {
       // 通常モード復帰時のみUI切替
+      updatePlayingAreaSplit(false);
       // 走者モード突入時に輪を隠しているので、指が乗ったままなら戻す
       updateBatterFingerRing();
       updatePlayingMoundDOM();
@@ -3779,6 +3782,17 @@ function updatePlayingMode() {
       playingState.nextPitchReadyAt = performance.now() + physics.playEndPitchCooldownMs;
     }
   }
+}
+
+// エリア着色の分割位置。守備中はピッチャー側が連打エリアの上端まで広がり、
+// 投球中は 50% に戻る。className を書き換える updateStatusBar と競合しないよう
+// インラインスタイルで設定する。
+function updatePlayingAreaSplit(isFieldingMode) {
+  const ratio = isFieldingMode ? physics.runnerBoostAreaTopRatio : 0.5;
+  const percent = ratio * 100;
+  elements.playingAreaTop.style.height =
+    `calc(${percent}% - env(safe-area-inset-top) - 52px)`;
+  elements.playingAreaBottom.style.top = `${percent}%`;
 }
 
 function isTopHalf(y) {

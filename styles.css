@@ -809,6 +809,8 @@ button {
   right: 0;
   pointer-events: none;
   z-index: 1;
+  /* 守備中はピッチャー側が下へ広がる。切替を滑らかに見せる。 */
+  transition: height 220ms ease, top 220ms ease;
 }
 
 .playing-area-tint.is-top-area {
