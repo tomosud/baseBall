@@ -226,6 +226,7 @@ const elements = {
   playingLabelBatter: document.getElementById("playingLabelBatter"),
   playingRunLabel: document.getElementById("playingRunLabel"),
   playingTopWall: document.getElementById("playingTopWall"),
+  playingMound: document.getElementById("playingMound"),
   playingHomeBase: document.getElementById("playingHomeBase"),
   playingBase0: document.getElementById("playingBase0"),
   playingBase1: document.getElementById("playingBase1"),
@@ -579,6 +580,12 @@ const physics = {
   cornerZoneHeight: 70,
   // コーナーゾーンに届いた打球が拾えるまでの遅延（秒）: 深い打球よりさらに長い
   cornerZonePickupDelay: 1.2,
+  // --- ピッチャーマウンド ---
+  // 通常投球はこの円の中からしか開始できない。ゲームの流れの中での
+  // 意図しないタップが投球開始になってしまうのを防ぐ。
+  // 中心円は塁（18px）の倍くらい、周囲の円はやや大きく取る。
+  moundCenterRadius: 18,
+  moundRadius: 46,
   // --- 投球のエリア越え許容 ---
   // ピッチャーエリアを超える長いスワイプは指が終端で自然に緩むため、
   // 直近 35ms だけを見ると球速がほぼゼロになり「失速」して見える。
@@ -2502,6 +2509,53 @@ function getPlayingHomePlate(rect) {
   return { x: rect.width * 0.5, y: zoneTop + zoneHeight / 2 };
 }
 
+// マウンドの位置と大きさ。2塁とディバイダー（ピッチャーエリアの下端）の中間に置く。
+// 半径はピッチャーエリアの高さに追従させる。エリアが低い画面で円がエリアを埋めると
+// 「マウンドからしか投げ始められない」という制約が意味を失うため。
+function getPlayingMound(rect) {
+  const topWallY = getPlayingTopWallY();
+  const dividerY = rect.height * 0.5;
+  const areaHeight = Math.max(0, dividerY - topWallY);
+  const radius = clamp(areaHeight * 0.22, 28, physics.moundRadius);
+  const centerRadius = radius * (physics.moundCenterRadius / physics.moundRadius);
+
+  const secondBaseY = getPlayingBasePositions(rect)[1].y;
+  const raw = (secondBaseY + dividerY) * 0.5;
+  const minY = topWallY + radius + 12;
+  const maxY = dividerY - radius - 8;
+  // 画面が極端に低い場合でもピッチャーエリア内に収める（maxY を優先）
+  return {
+    x: rect.width * 0.5,
+    y: Math.min(maxY, Math.max(minY, raw)),
+    radius,
+    centerRadius,
+  };
+}
+
+function isInsidePlayingMound(x, y) {
+  const mound = getPlayingMound(elements.playingSurface.getBoundingClientRect());
+  return Math.hypot(x - mound.x, y - mound.y) <= mound.radius;
+}
+
+// 描画は判定と同じ値から組み立て、見た目と当たり判定がズレないようにする
+function updatePlayingMoundDOM() {
+  const mound = getPlayingMound(elements.playingSurface.getBoundingClientRect());
+  const el = elements.playingMound;
+  el.style.width = `${mound.radius * 2}px`;
+  el.style.height = `${mound.radius * 2}px`;
+  el.style.marginLeft = `${-mound.radius}px`;
+  el.style.marginTop = `${-mound.radius}px`;
+  el.style.transform = `translate(${mound.x}px, ${mound.y}px)`;
+
+  const centerEl = el.firstElementChild;
+  if (centerEl) {
+    centerEl.style.width = `${mound.centerRadius * 2}px`;
+    centerEl.style.height = `${mound.centerRadius * 2}px`;
+    centerEl.style.marginLeft = `${-mound.centerRadius}px`;
+    centerEl.style.marginTop = `${-mound.centerRadius}px`;
+  }
+}
+
 function updatePlayingHomBaseDOM() {
   const rect = elements.playingSurface.getBoundingClientRect();
   const home = getPlayingHomePlate(rect);
@@ -2513,6 +2567,7 @@ function showPlayingScore() {
 }
 
 function updatePlayingBasesDOM() {
+  updatePlayingMoundDOM();
   const rect = elements.playingSurface.getBoundingClientRect();
   const bases = getPlayingBasePositions(rect);
   const baseEls = [elements.playingBase0, elements.playingBase1, elements.playingBase2];
@@ -3429,6 +3484,7 @@ function updatePlayingMode() {
   if (running) {
     if (!wasRunnerMode) {
       // 走者モード突入時のみUI切替
+      elements.playingMound.classList.add("is-hidden");
       elements.playingDivider.classList.add("is-hidden");
       elements.playingLabelPitcher.classList.add("is-hidden");
       elements.playingLabelBatter.classList.add("is-hidden");
@@ -3441,6 +3497,8 @@ function updatePlayingMode() {
   } else {
     if (wasRunnerMode) {
       // 通常モード復帰時のみUI切替
+      updatePlayingMoundDOM();
+      elements.playingMound.classList.remove("is-hidden");
       elements.playingDivider.classList.remove("is-hidden");
       elements.playingLabelPitcher.classList.remove("is-hidden");
       elements.playingLabelBatter.classList.remove("is-hidden");
@@ -3530,6 +3588,11 @@ function beginPlayingPointer(event) {
 
     // プレー終了直後のクールダウン中は次の投球を受け付けない（区切り）
     if (!nearBall && performance.now() < playingState.nextPitchReadyAt) return;
+
+    // 通常投球はマウンドの円の中からしか開始できない。
+    // 守備の流れの中でピッチャーエリアを触ったときに、意図せず投球が始まるのを防ぐ。
+    // 投げ始めた後は円を出て構わない（リリース位置は自由）。
+    if (!nearBall && !isInsidePlayingMound(point.x, point.y)) return;
 
     // 通常投球開始時（ピックアップなし）はフィールダーピックアップ状態をクリア
     if (!nearBall) {
@@ -3663,6 +3726,19 @@ function getPlayingBatterVector() {
   const vy = ((last.y - base.y) / dt) * 1000;
   return { velocityX: vx, velocityY: vy, speed: Math.hypot(vx, vy) };
 }
+
+// 画面サイズ・向きが変わったら塁とマウンドの描画位置を作り直す。
+// 判定側は毎フレーム rect から計算しているので、描画だけが取り残されるのを防ぐ。
+// 特にマウンドは投球開始の当たり判定を兼ねるため、見た目とのズレは操作不能に直結する。
+function refreshPlayingLayout() {
+  if (elements.playingScreen.classList.contains("is-hidden")) return;
+  updatePlayingBasesDOM();
+  updatePlayingHomBaseDOM();
+  renderPlayingRunners();
+}
+
+window.addEventListener("resize", refreshPlayingLayout);
+window.addEventListener("orientationchange", refreshPlayingLayout);
 
 elements.playingSurface.addEventListener("pointerdown", beginPlayingPointer);
 elements.playingSurface.addEventListener("pointermove", movePlayingPointer);
