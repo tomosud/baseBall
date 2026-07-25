@@ -1350,3 +1350,80 @@ button {
   0%, 44%   { background: #ff3b30; }
   50%, 100% { background: #fff0ee; }
 }
+
+/* ===== デッドボール ===== */
+
+/* バッターの指に出る肌色の薄い輪。寸法は app.js が判定半径から設定する。 */
+.batter-finger-ring {
+  position: absolute;
+  z-index: 5;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 214, 186, 0.42);
+  background: rgba(255, 214, 186, 0.09);
+  box-shadow: 0 0 10px rgba(255, 200, 165, 0.22);
+  pointer-events: none;
+}
+
+/* 輪が砕けた破片 */
+.dead-ball-piece {
+  position: absolute;
+  z-index: 7;
+  width: 7px;
+  height: 7px;
+  margin-left: -3.5px;
+  margin-top: -3.5px;
+  border-radius: 50%;
+  background: rgba(255, 214, 186, 0.95);
+  box-shadow: 0 0 8px rgba(255, 190, 150, 0.8);
+  pointer-events: none;
+  animation: dead-ball-scatter 0.68s cubic-bezier(0.16, 0.9, 0.35, 1) forwards;
+}
+
+@keyframes dead-ball-scatter {
+  from {
+    opacity: 1;
+    transform: translate(0, 0) rotate(0deg) scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: translate(var(--dx), var(--dy)) rotate(var(--spin)) scale(0.35);
+  }
+}
+
+/* 得点表示へ飛んでいく +1 */
+.dead-ball-point {
+  position: absolute;
+  z-index: 13;
+  margin-left: -18px;
+  margin-top: -16px;
+  width: 36px;
+  text-align: center;
+  font-size: 1.6rem;
+  font-weight: 900;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+  transform: translate(0, 0) scale(1);
+  transition: transform 0.7s cubic-bezier(0.4, 0, 0.25, 1);
+}
+
+.dead-ball-point.team-red {
+  color: #ff6b63;
+}
+
+.dead-ball-point.team-blue {
+  color: #4fc3f7;
+}
+
+/* 「デッドボール」表示: カウントは動かず、投げた側に点が入る */
+.playing-call.is-dead {
+  color: #ffd6ba;
+  font-size: 1.75rem;
+  animation: dead-ball-call 0.34s ease-out;
+}
+
+@keyframes dead-ball-call {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(0.6); }
+  55%  { opacity: 1; transform: translate(-50%, -50%) scale(1.18); }
+  to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}

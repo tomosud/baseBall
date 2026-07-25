@@ -117,6 +117,9 @@ const playingState = {
   // batter side
   batterPointerId: null,
   batterTrail: [],
+  // バッターの指の位置。デッドボール（ここに投球が当たる）の判定と輪の描画に使う。
+  batterFingerX: 0,
+  batterFingerY: 0,
   isSwinging: false,
   swingTimer: 0,
   swingElapsed: 0,
@@ -244,6 +247,7 @@ const elements = {
   playingRunnerRing2: document.getElementById("playingRunnerRing2"),
   playingRunnerRing3: document.getElementById("playingRunnerRing3"),
   playingTagLabel: document.getElementById("playingTagLabel"),
+  playingBatterFinger: document.getElementById("playingBatterFinger"),
   // game UI
   playingStatusBar: document.getElementById("playingStatusBar"),
   statusScoreBlue: document.getElementById("statusScoreBlue"),
@@ -534,6 +538,10 @@ const physics = {
   battingSwingDuration: 0.065,
   batContactRadius: 35,
   battingHitDragPerSecond: 1.1,
+  // デッドボール判定の半径（px）。バッターの指に出る輪の見た目と同じ値を使う。
+  deadBallRadius: 26,
+  // 得点が飛んでいく演出の時間（ms）
+  deadBallPointFlightMs: 700,
   // 投げミス（ピッチャーエリアを出られなかった投球）後、投げ直しを受け付けるまでの間隔（ms）。
   // 何も起きなかった扱いなので、通常のプレー終了より短くしてテンポを切らさない。
   pitchMissRetryDelayMs: 350,
@@ -2398,12 +2406,12 @@ function updatePlayingCall(text, kind = "") {
   }
 
   elements.playingCall.textContent = text;
-  elements.playingCall.classList.remove("is-strike", "is-ball", "is-out", "is-miss");
+  elements.playingCall.classList.remove("is-strike", "is-ball", "is-out", "is-miss", "is-dead");
   if (kind) elements.playingCall.classList.add(kind);
 
-  if (text === "STRIKE" || text === "BALL" || text === PITCH_MISS_TEXT) {
-    // 投げミスはカウントが動かないぶん見落としやすいので長めに出す
-    const holdMs = text === PITCH_MISS_TEXT ? 1000 : 550;
+  if (text === "STRIKE" || text === "BALL" || text === PITCH_MISS_TEXT || text === DEAD_BALL_TEXT) {
+    // 投げミス／デッドボールはカウントが動かないぶん見落としやすいので長めに出す
+    const holdMs = text === "STRIKE" || text === "BALL" ? 550 : 1200;
     setTimeout(() => {
       if (elements.playingCall.textContent === text) {
         updatePlayingCall("");
@@ -3118,6 +3126,7 @@ function resetPlayingState() {
   playingState.rollDirection = 1;
   playingState.batterPointerId = null;
   playingState.batterTrail = [];
+  elements.playingBatterFinger.classList.add("is-hidden");
   playingState.isSwinging = false;
   playingState.swingTimer = 0;
   playingState.swingElapsed = 0;
@@ -3187,6 +3196,107 @@ function launchPlayingBall(vector) {
   updatePlayingDebug();
 }
 
+// ===== デッドボール =====
+
+// バッターの指に出す輪。見た目の半径と判定半径を同じ値から作り、ズレないようにする。
+function updateBatterFingerRing() {
+  const el = elements.playingBatterFinger;
+  const show = playingState.batterPointerId !== null && !playingState.inPlay;
+
+  el.classList.toggle("is-hidden", !show);
+  if (!show) return;
+
+  const size = physics.deadBallRadius * 2;
+  el.style.width = `${size}px`;
+  el.style.height = `${size}px`;
+  el.style.marginLeft = `${-physics.deadBallRadius}px`;
+  el.style.marginTop = `${-physics.deadBallRadius}px`;
+  el.style.left = `${playingState.batterFingerX}px`;
+  el.style.top = `${playingState.batterFingerY}px`;
+}
+
+function setBatterFinger(x, y) {
+  playingState.batterFingerX = x;
+  playingState.batterFingerY = y;
+  updateBatterFingerRing();
+}
+
+// 輪がバラバラに弾ける
+function spawnDeadBallBurst(x, y) {
+  const pieces = 12;
+  for (let i = 0; i < pieces; i += 1) {
+    const angle = (Math.PI * 2 * i) / pieces + Math.random() * 0.3;
+    const distance = physics.deadBallRadius * (1.6 + Math.random() * 1.4);
+    const piece = document.createElement("div");
+    piece.className = "dead-ball-piece";
+    piece.style.left = `${x + Math.cos(angle) * physics.deadBallRadius}px`;
+    piece.style.top = `${y + Math.sin(angle) * physics.deadBallRadius}px`;
+    piece.style.setProperty("--dx", `${Math.cos(angle) * distance}px`);
+    piece.style.setProperty("--dy", `${Math.sin(angle) * distance}px`);
+    piece.style.setProperty("--spin", `${(Math.random() - 0.5) * 540}deg`);
+    elements.playingSurface.appendChild(piece);
+    setTimeout(() => piece.remove(), 700);
+  }
+}
+
+// 得点をピッチャー側のスコア表示へ飛ばし、着いたところで加点する
+function flyDeadBallPointToScore(fromX, fromY, onArrive) {
+  const surfaceRect = elements.playingSurface.getBoundingClientRect();
+  const targetEl = gameState.isTop ? elements.statusTeamRed : elements.statusTeamBlue;
+  const targetRect = targetEl.getBoundingClientRect();
+  const toX = targetRect.left - surfaceRect.left + targetRect.width * 0.5;
+  const toY = targetRect.top - surfaceRect.top + targetRect.height * 0.5;
+
+  const el = document.createElement("div");
+  el.className = `dead-ball-point ${gameState.isTop ? "team-red" : "team-blue"}`;
+  el.textContent = "+1";
+  el.style.left = `${fromX}px`;
+  el.style.top = `${fromY}px`;
+  elements.playingSurface.appendChild(el);
+
+  // 1フレーム置いてから transform を変えることで transition を確実に走らせる
+  requestAnimationFrame(() => {
+    el.style.transform = `translate(${toX - fromX}px, ${toY - fromY}px) scale(0.55)`;
+  });
+
+  setTimeout(() => {
+    el.remove();
+    onArrive();
+  }, physics.deadBallPointFlightMs);
+}
+
+// 投球がバッターの指に当たった: ピッチャー側に1点
+function triggerDeadBall(hitX, hitY) {
+  playingState.pitchJudged = true;
+  playSfx("wallBounce");
+  spawnDeadBallBurst(hitX, hitY);
+  elements.playingBatterFinger.classList.add("is-hidden");
+
+  finishPlayingPitch(DEAD_BALL_TEXT);
+  updatePlayingCall(DEAD_BALL_TEXT, "is-dead");
+  playingState.nextPitchReadyAt = performance.now() + physics.deadBallPointFlightMs + 300;
+
+  flyDeadBallPointToScore(hitX, hitY, () => {
+    if (gameState.phase !== "playing") return;
+    addRunForPitchingTeam();
+    playSfx("score");
+    saveGameToDB();
+    if (shouldEndOnWalkoff() && !hasPendingHomeRunScores()) gameDoGameSet();
+  });
+
+  // 指がまだ乗っていれば輪は復活する
+  setTimeout(() => updateBatterFingerRing(), physics.deadBallPointFlightMs);
+}
+
+// 守備側（投げている側）に1点。表=青軍攻撃なので、投げているのは裏返しのチーム。
+function addRunForPitchingTeam() {
+  const teamIdx = gameState.isTop ? 1 : 0;
+  gameState.score[teamIdx]++;
+  const inningIdx = gameState.inning - 1;
+  if (inningIdx < 9) gameState.inningScores[inningIdx][teamIdx]++;
+  updateStatusBar();
+}
+
 // ピッチャーエリアを出られなかった投球は「投げミス」。
 // 手が滑った・置いただけ、といった事故をカウントに残さないための扱い。
 function isPitchMiss() {
@@ -3199,6 +3309,7 @@ function isPitchMiss() {
 }
 
 const PITCH_MISS_TEXT = "投げミス";
+const DEAD_BALL_TEXT = "デッドボール";
 
 function finishPitchAsMiss() {
   // カウントは動かさない。judged を立てて以降の判定を止めるだけ。
@@ -3407,6 +3518,29 @@ function animatePlaying(timeStamp) {
       reflectPlayingBallFromBat();
     }
 
+    // デッドボール: 投球がバッターの指（輪）に当たったらピッチャー側に1点。
+    // バット接触判定の後に置くことで、打てた場合はそちらが優先される。
+    if (
+      !playingState.pitchJudged &&
+      !playingState.isHit &&
+      !playingState.isFielderThrow &&
+      playingState.isPitched &&
+      playingState.batterPointerId !== null &&
+      !playingState.inPlay
+    ) {
+      const fingerDist = distancePointToSegment(
+        playingState.batterFingerX, playingState.batterFingerY,
+        previousX, previousY, playingState.ballX, playingState.ballY,
+      );
+      if (fingerDist <= physics.deadBallRadius) {
+        triggerDeadBall(playingState.batterFingerX, playingState.batterFingerY);
+        updatePlayingRunners(dt);
+        updatePlayingDebug();
+        playingState.animationFrameId = window.requestAnimationFrame(animatePlaying);
+        return;
+      }
+    }
+
     // ストライクゾーン侵入判定（バウンド済みは常にボール、フィールダー投球は除く）
     if (!playingState.pitchJudged && !playingState.isHit && !playingState.isFielderThrow) {
       const pzone = getPlayingStrikeZoneRect();
@@ -3553,6 +3687,8 @@ function updatePlayingMode() {
   if (running) {
     if (!wasRunnerMode) {
       // 走者モード突入時のみUI切替
+      // 打った直後は指が乗ったままなので、デッドボールの輪をここで確実に消す
+      elements.playingBatterFinger.classList.add("is-hidden");
       elements.playingMound.classList.add("is-hidden");
       elements.playingDivider.classList.add("is-hidden");
       elements.playingLabelPitcher.classList.add("is-hidden");
@@ -3694,6 +3830,7 @@ function beginPlayingPointer(event) {
     playingState.batPointerStartX = point.x;
     playingState.batPointerStartY = point.y;
     playingState.batReadyAngle = physics.batRestAngle;
+    setBatterFinger(point.x, point.y);
     elements.playingBatHitAngle.classList.add("is-hidden");
     elements.playingBatReflectAngle.classList.add("is-hidden");
     setPlayingBatPosition(batPos.x, batPos.y, physics.batRestAngle);
@@ -3725,6 +3862,7 @@ function movePlayingPointer(event) {
     if (!playingState.isSwinging) {
       placePlayingBatOnSwingLine(point.x, point.y);
     }
+    setBatterFinger(point.x, point.y);
     pushPlayingBatterTrail(point.x, point.y, event.timeStamp);
     const vec = getPlayingBatterVector();
     playingState.swingGateSpeed = Math.max(0, -vec.velocityY);
@@ -3755,6 +3893,7 @@ function endPlayingPointer(event) {
     pushPlayingBatterTrail(point.x, point.y, event.timeStamp);
     playingState.batterPointerId = null;
     playingState.batterTrail = [];
+    updateBatterFingerRing();
   }
 }
 
