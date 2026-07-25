@@ -95,8 +95,8 @@ const playingState = {
   ballY: 0,
   velocityX: 0,
   velocityY: 0,
-  // この球に適用する飛行中の抗力。球速倍率と同率で下げることで軌道の形を保つ。
-  flightDrag: 0,
+  // 打球・送球の減衰。送球だけ球速倍率と同率で下げ、届く距離を保ったまま遅くする。
+  hitDrag: 1.1,
   curveAccelerationX: 0,
   curveRampDuration: 1,
   currentSpeed: 0,
@@ -527,6 +527,9 @@ const physics = {
   battingSwingDuration: 0.065,
   batContactRadius: 35,
   battingHitDragPerSecond: 1.1,
+  // 拾って走者を刺しにいく送球の球速倍率。投球と打球は等倍のまま。
+  // 速度と減衰を同率で落とすので、届く距離は変わらず到達までの時間だけ 1/倍率 に延びる。
+  fielderThrowSpeedFactor: 0.6,
   battingStopSpeed: 18,
   battingRestSpeed: 90,
   battingEdgeBounceRestitution: 0.62,
@@ -582,10 +585,6 @@ const physics = {
   cornerZoneHeight: 70,
   // コーナーゾーンに届いた打球が拾えるまでの遅延（秒）: 深い打球よりさらに長い
   cornerZonePickupDelay: 1.2,
-  // 走者が塁にいるときの投球速度倍率（セットポジション相当）。
-  // 速度と抗力を同率で落とすので、到達距離は変わらず滞空時間だけ 1/倍率 に延びる。
-  // フィールダー送球には掛けない（守備が成立しなくなるため）。
-  pitchSpeedFactorWithRunners: 0.6,
   // --- ピッチャーマウンド ---
   // 通常投球はこの円の中からしか開始できない。ゲームの流れの中での
   // 意図しないタップが投球開始になってしまうのを防ぐ。
@@ -896,14 +895,15 @@ function launchPitchModel(model, vector, zone, options = {}) {
     model.velocityY *= minScale;
   }
 
-  // 球速倍率。速度と抗力を同じ率で落とすことで、到達距離（速度÷抗力）を保ったまま
-  // 軌道を時間方向に引き伸ばす。速度だけ落とすと本塁に届かず必ずバウンドしてしまう。
+  // 球速倍率。速度と減衰を同率で落とすと、到達距離（速度÷減衰）を保ったまま
+  // 軌道が時間方向へ引き伸ばされる。速度だけ落とすと届く距離まで縮んでしまう。
   const speedFactor = options.speedFactor ?? 1;
   if (speedFactor !== 1) {
     model.velocityX *= speedFactor;
     model.velocityY *= speedFactor;
   }
-  model.flightDrag = physics.dragPerSecond * speedFactor;
+  // 打球・送球の減衰（animatePlaying の isHit / isFielderThrow 側で使う）
+  model.hitDrag = physics.battingHitDragPerSecond * speedFactor;
 
   model.flightGravity = Math.max(120, physics.heightGravity - Math.min(90, scaledSpeed * 0.018));
 
@@ -912,8 +912,7 @@ function launchPitchModel(model, vector, zone, options = {}) {
   const zoneCenterY = (zone.top + zone.bottom) * 0.5;
   const distToZone = Math.max(0, (zoneCenterX - model.ballX) * rdX + (zoneCenterY - model.ballY) * rdY);
   const travelSpeed = Math.hypot(model.velocityX, model.velocityY);
-  // 遅い球ほど滞空時間が延びるので、山なりの高さもこの球の抗力から見積もる
-  const drag = model.flightDrag;
+  const drag = physics.dragPerSecond;
   const arcHeightForDistance = (distance) =>
     travelSpeed > distance * drag
       ? 0.5 * model.flightGravity * (-Math.log(1 - (distance * drag) / travelSpeed) / drag) ** 2 * 1.1
@@ -934,11 +933,7 @@ function launchPitchModel(model, vector, zone, options = {}) {
     );
   }
 
-  // 山なりの上限。滞空時間は速度倍率の逆数で延びるので、必要な高さは倍率の2乗で増える。
-  // 上限を同じ率で緩めないと、遅い球だけが本塁前で落ちて「同じスワイプなのに判定が変わる」。
-  // playing 画面では高さを描画しないため、上限を上げても見た目には影響しない。
-  const maxArcHeight = 400 / (speedFactor * speedFactor);
-  model.initialHeight = Math.min(maxArcHeight, Math.max(baseHeight, minHeightForZone));
+  model.initialHeight = Math.min(400, Math.max(baseHeight, minHeightForZone));
   model.height = model.initialHeight;
   model.heightVelocity = 0;
   model.flightElapsed = 0;
@@ -3121,7 +3116,7 @@ function resetPlayingState() {
   playingState.pitchRawSpeed = 0;
   playingState.velocityX = 0;
   playingState.velocityY = 0;
-  playingState.flightDrag = physics.dragPerSecond;
+  playingState.hitDrag = physics.battingHitDragPerSecond;
   playingState.height = 0;
   playingState.initialHeight = 0;
   playingState.heightVelocity = 0;
@@ -3175,9 +3170,9 @@ function launchPlayingBall(vector) {
     !playingState.isFielderThrow && playingState.pitchOriginX !== null
       ? { arcOriginX: playingState.pitchOriginX, arcOriginY: playingState.pitchOriginY }
       : {};
-  // 走者が塁にいる投球だけ球速を落とす。送球（フィールダースロー）は等倍のまま。
-  if (!playingState.isFielderThrow && hasRunnersOnBase()) {
-    launchOptions.speedFactor = physics.pitchSpeedFactorWithRunners;
+  // 走者を刺しにいく送球だけ球速を落とす。投球は等倍のまま。
+  if (playingState.isFielderThrow) {
+    launchOptions.speedFactor = physics.fielderThrowSpeedFactor;
   }
   const launch = launchPitchModel(playingState, vector, getPlayingStrikeZoneRect(), launchOptions);
   // 拾って投げた送球だけが「生きた送球」。壁に触れるまでの間だけアウトを取れる。
@@ -3276,7 +3271,7 @@ function animatePlaying(timeStamp) {
     if (!playingState.isHit && !playingState.isFielderThrow) {
       if (playingState.motionMode === "flight") {
         playingState.flightElapsed += dt;
-        const dragFactor = Math.exp(-(playingState.flightDrag || physics.dragPerSecond) * dt);
+        const dragFactor = Math.exp(-physics.dragPerSecond * dt);
         const sideDragFactor = Math.exp(-physics.sideDragPerSecond * dt);
         playingState.velocityX *= sideDragFactor;
         playingState.velocityY *= dragFactor;
@@ -3326,7 +3321,8 @@ function animatePlaying(timeStamp) {
         playingState.currentSpeed = Math.hypot(playingState.velocityX, playingState.velocityY);
       }
     } else {
-      const drag = Math.exp(-physics.battingHitDragPerSecond * dt);
+      // 打球は等倍、フィールダー送球は launchPitchModel で落とした減衰を使う
+      const drag = Math.exp(-(playingState.hitDrag || physics.battingHitDragPerSecond) * dt);
       playingState.velocityX *= drag;
       playingState.velocityY *= drag;
       // 引き継いだ投球カーブを打球に適用（isHit のみ、フィールダー投球には適用しない）
@@ -3511,11 +3507,6 @@ function getPlayingSurfacePoint(event) {
 
 function hasActiveRunners() {
   return playingState.runners.some((r) => r.state === "running");
-}
-
-// 塁上に走者がいるか（投球速度を落とす条件）
-function hasRunnersOnBase() {
-  return playingState.runners.some((r) => r.state !== "out" && r.state !== "scored");
 }
 
 function updatePlayingMode() {
