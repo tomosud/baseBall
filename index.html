@@ -49,10 +49,8 @@
         </div>
         <!-- ゲームオーバーレイ -->
         <div class="playing-overlay is-hidden" id="playingOverlay">
-          <div class="overlay-trivia is-pitcher-side is-hidden" id="overlayTriviaPitcher" aria-hidden="true"></div>
           <div class="overlay-message" id="overlayMessage">PLAY BALL</div>
           <div class="overlay-sub" id="overlaySub"></div>
-          <div class="overlay-trivia is-batter-side is-hidden" id="overlayTriviaBatter"></div>
           <button type="button" class="overlay-button is-hidden" id="overlayButton">もう一度</button>
         </div>
         <!-- 長押し中インジケーター -->
@@ -83,6 +81,8 @@
         <div class="playing-divider" id="playingDivider" aria-hidden="true"></div>
         <div class="playing-label is-pitcher" id="playingLabelPitcher" aria-hidden="true">Pitcher</div>
         <div class="playing-label is-batter" id="playingLabelBatter" aria-hidden="true">Batter</div>
+        <div class="overlay-trivia is-pitcher-side is-hidden" id="overlayTriviaPitcher" aria-hidden="true"></div>
+        <div class="overlay-trivia is-batter-side is-hidden" id="overlayTriviaBatter" aria-hidden="true"></div>
         <div class="playing-run-label is-hidden" id="playingRunLabel" aria-hidden="true">RUN！RUN！RUN！</div>
         <div class="playing-tag-label is-hidden" id="playingTagLabel" aria-hidden="true">走者に当てろ！</div>
         <div class="strike-zone batting-strike-zone playing-strike-zone" id="playingStrikeZone" aria-hidden="true"></div>
@@ -189,6 +189,7 @@
       </div>
     </section>
 
+    <script>document.write('<script src="trivia.js?v='+Date.now()+'"><\/script>')</script>
     <script>document.write('<script src="app.js?v='+Date.now()+'"><\/script>')</script>
   </body>
 </html>
