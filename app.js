@@ -485,7 +485,8 @@ function gameDoChange() {
     playingState.animationFrameId = window.requestAnimationFrame(animatePlaying);
     updatePlayingCall("READY");
     // 豆知識はオーバーレイと一緒には消さない。ピッチャーが投げ始めるまで残る。
-  }, 1800);
+    // 700ms のディゾルブで出るぶん、CHANGE! の表示は 1800ms の1.5倍にしてある。
+  }, 2700);
 }
 
 function gameDoGameSet() {
@@ -528,14 +529,14 @@ function showBaseballTrivia(trivia) {
   const text = trivia ? `⚾ ${trivia}` : "";
   elements.overlayTriviaPitcher.textContent = text;
   elements.overlayTriviaBatter.textContent = text;
-  elements.overlayTriviaPitcher.classList.toggle("is-hidden", !trivia);
-  elements.overlayTriviaBatter.classList.toggle("is-hidden", !trivia);
+  // 出入りは CSS の opacity トランジション（ディゾルブ）に任せる
+  elements.overlayTriviaPitcher.classList.toggle("is-visible", !!trivia);
+  elements.overlayTriviaBatter.classList.toggle("is-visible", !!trivia);
 }
 
 function hideBaseballTrivia() {
-  if (elements.overlayTriviaPitcher.classList.contains("is-hidden")) return;
-  elements.overlayTriviaPitcher.classList.add("is-hidden");
-  elements.overlayTriviaBatter.classList.add("is-hidden");
+  elements.overlayTriviaPitcher.classList.remove("is-visible");
+  elements.overlayTriviaBatter.classList.remove("is-visible");
 }
 
 function showOverlay(message, sub, showButton) {
@@ -4009,11 +4010,13 @@ function beginPlayingPointer(event) {
     playingState.pitchOriginX = nearBall ? null : point.x;
     playingState.pitchOriginY = nearBall ? null : point.y;
     playingState.pitcherPointerId = event.pointerId;
+    // 見た目の切り替えは setPointerCapture より先に。捕捉が失敗しても
+    // 「持っている」表示だけは状態と合うようにしておく。
+    updatePlayingMoundHold();
     elements.playingSurface.setPointerCapture(event.pointerId);
     playingState.pitcherTrail = [];
     setPlayingBallPosition(point.x, point.y);
     showPlayingBall();
-    updatePlayingMoundHold();
     pushPlayingPitcherTrail(point.x, point.y, event.timeStamp);
   } else {
     // バッター側

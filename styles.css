@@ -781,6 +781,17 @@ button {
   text-align: center;
   text-wrap: balance;
   pointer-events: none;
+  /* ディゾルブで出入りする。display は切り替えない（切り替えると補間できない）。
+     visibility は消え切ってから落とし、出るときは即座に戻す。 */
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 700ms ease, visibility 0s linear 700ms;
+}
+
+.overlay-trivia.is-visible {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 700ms ease, visibility 0s linear 0s;
 }
 
 /* マウンドの円と中央の CHANGE! の間に挟む。
