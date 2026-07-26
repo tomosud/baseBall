@@ -226,7 +226,6 @@ const elements = {
   playingBatHitAngle: document.getElementById("playingBatHitAngle"),
   playingBatReflectAngle: document.getElementById("playingBatReflectAngle"),
   playingBat: document.getElementById("playingBat"),
-  playingHint: document.getElementById("playingHint"),
   playingDivider: document.getElementById("playingDivider"),
   playingLabelPitcher: document.getElementById("playingLabelPitcher"),
   playingLabelBatter: document.getElementById("playingLabelBatter"),
@@ -322,11 +321,6 @@ function resetAtBat() {
   gameState.strikes = 0;
   updateStatusBar();
 }
-
-// 画面下のヒント。英語の長文が横に溢れて切れていたので、短い日本語に統一した。
-const HINT_DEFAULT = "円の中から上へスワイプ ／ バッターは上へ振る";
-const HINT_PITCHED = "今だ！ 上へ振る";
-const HINT_FIELDING = "拾って走者にぶつけるとアウト";
 
 function updateStatusBar() {
   elements.statusScoreBlue.textContent = gameState.score[0];
@@ -3361,7 +3355,6 @@ function launchPlayingBall(vector) {
   updateContactableBall(elements.playingBall, false);
   showPlayingBall();
   updatePlayingCall("SWING!");
-  elements.playingHint.textContent = HINT_PITCHED;
   updatePlayingDebug();
 }
 
@@ -3509,7 +3502,6 @@ function finishPlayingPitch(message = "READY") {
   updatePlayingCall(message);
   playingState.isPitched = false;
   playingState.nextPitchReadyAt = performance.now() + 800;
-  elements.playingHint.textContent = HINT_DEFAULT;
   // フィールダーピックアップ／フィールダースロー状態をクリア（ドラッグ制限を次の通常投球に引き継がない）
   // isFielderThrow と isResting も同期してリセットすることで、次の beginPlayingPointer の
   // ballOnField 判定が古い状態を参照しないようにする。
@@ -3866,7 +3858,6 @@ function updatePlayingMode() {
       elements.playingLabelPitcher.classList.add("is-hidden");
       elements.playingLabelBatter.classList.add("is-hidden");
       elements.playingRunLabel.classList.remove("is-hidden");
-      elements.playingHint.textContent = HINT_FIELDING;
       elements.playingStrikeZone.classList.add("is-hidden");
       elements.playingHomeBase.classList.remove("is-hidden");
     }
@@ -3885,7 +3876,6 @@ function updatePlayingMode() {
       elements.playingLabelBatter.classList.remove("is-hidden");
       elements.playingRunLabel.classList.add("is-hidden");
       elements.playingTagLabel.classList.add("is-hidden");
-      elements.playingHint.textContent = HINT_DEFAULT;
       elements.playingStrikeZone.classList.remove("is-hidden");
       elements.playingHomeBase.classList.add("is-hidden");
       // フィールディングモード用のピックアップ状態をクリア（ピッチャーのドラッグ制限を解除）

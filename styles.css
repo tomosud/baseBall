@@ -1003,21 +1003,6 @@ button {
   to   { opacity: 1.0; transform: translate(-50%, -50%) scale(1.05); }
 }
 
-/* nowrap のせいで長い文が画面外に切れていたので、折り返せるようにして
-   画面幅に収める。中央寄せは transform ではなく左右0＋text-align で取る。 */
-.playing-hint {
-  position: absolute;
-  bottom: calc(env(safe-area-inset-bottom) + 16px);
-  left: 12px;
-  right: 12px;
-  margin: 0;
-  text-align: center;
-  font-size: 0.72rem;
-  line-height: 1.4;
-  color: rgba(255, 255, 255, 0.38);
-  pointer-events: none;
-  z-index: 4;
-}
 
 /* リセットボタン */
 .playing-reset-btn {
