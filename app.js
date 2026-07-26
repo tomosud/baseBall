@@ -603,20 +603,23 @@ const physics = {
   // 連打エリアを狭めることで、送球が走者側の指の近くを通ったときに
   // 誤ってボールを拾ってしまう事故も減る。
   runnerBoostAreaTopRatio: 0.75,
-  // 走者の基本速度（px/s）: タップしないと割と遅い
-  runnerBaseSpeed: 78,
+  // 走者の基本速度（px/s）: 連打しないとほとんど進まない。
+  // これは「止まって送球をかわす」ための速度で、走るための速度ではない。
+  runnerBaseSpeed: 18,
   // フォアボール自動進塁の速度（px/s）: タップ無効なので待たせないよう速め
   walkAdvanceSpeed: 124,
-  // 走者ブースト: バッター側の連打1回あたりの加速量（px/s）
-  // 上限78に対して1タップ17 → 満タンに5連打、維持に秒3回程度の本当の連打が必要
-  runnerBoostPerTap: 17,
-  // 走者ブーストの上限（px/s）: 基本78+上限78=最大156px/s
-  runnerBoostMax: 78,
-  // 走者ブーストの減衰速度（px/s^2）: 連打の手応えを残すため緩やかに落とす
-  runnerBoostDecayPerSecond: 46,
+  // 走者ブースト: バッター側の連打1回あたりの加速量（px/s）。
+  // 1タップで一歩ぶん蹴り出す感覚。連打の間隔がそのまま速度になる。
+  runnerBoostPerTap: 62,
+  // 走者ブーストの上限（px/s）: 基本18+上限220=最大238px/s
+  runnerBoostMax: 220,
+  // 走者ブーストの減衰「率」（1/s）。速度に比例して落ちるので、
+  //   ・連打を続ける限り 62 * 連打回数/s / 2.6 あたりで釣り合う（間隔が速いほど速い）
+  //   ・やめると半減0.27秒で崩れる（守備の読みを外して避けられる）
+  runnerBoostDecayRate: 2.6,
   // アウト発生時に残った走者へ与えるブースト（上限に対する比率）
   // 「1つアウトが出ると芋づるで全員アウト」を走者側の反撃で抑える
-  runnerBoostOnOutRatio: 0.55,
+  runnerBoostOnOutRatio: 0.2,
   // プレー終了後に次の投球を受け付けるまでのクールダウン（ms）
   playEndPitchCooldownMs: 900,
   // 深い打球（上壁到達）が静止後に拾えるようになるまでの遅延（秒）
@@ -2793,10 +2796,10 @@ function updatePlayingRunners(dt) {
   let runnersSettled = false;
 
   if (playingState.runnerBoost > 0) {
-    playingState.runnerBoost = Math.max(
-      0,
-      playingState.runnerBoost - physics.runnerBoostDecayPerSecond * dt,
-    );
+    // 速度に比例して落とす（指数減衰）。連打の間隔がそのまま速度になり、
+    // 連打をやめると急に失速するので、送球の読みを外して避けられる。
+    playingState.runnerBoost *= Math.exp(-physics.runnerBoostDecayRate * dt);
+    if (playingState.runnerBoost < 0.5) playingState.runnerBoost = 0;
   }
   updateRunnerBoostGauge();
 
@@ -2899,7 +2902,8 @@ function renderPlayingRunners() {
     // 連打ブースト中の走者にオーラを付ける（フォアボール進塁は対象外）
     el.classList.toggle(
       "is-boosted",
-      runner.state === "running" && !runner.fromWalk && playingState.runnerBoost > 30,
+      runner.state === "running" && !runner.fromWalk &&
+        playingState.runnerBoost > physics.runnerBoostMax * 0.45,
     );
 
     // 方向: 走っているなら目標塁/ホームへ、セーフなら次の方向を向く
