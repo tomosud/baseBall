@@ -2846,6 +2846,8 @@ function updatePlayingRunners(dt) {
     const moveSpeed = runner.fromWalk
       ? physics.walkAdvanceSpeed
       : physics.runnerBaseSpeed + playingState.runnerBoost;
+    // 走った距離で足の運びを進める（速いほど回転が速くなる）
+    runner.stride = (runner.stride || 0) + (moveSpeed * dt) / RUNNER_STRIDE_PIXELS;
     runner.progress += (moveSpeed * dt) / dist;
 
     if (runner.progress >= 1) {
@@ -2863,6 +2865,18 @@ function updatePlayingRunners(dt) {
   renderPlayingRunners();
   if (runnersSettled && !hasActiveRunners()) saveGameToDB();
 }
+
+// 走者スプライト（assets/sprite/runner-run.png）は8コマの横1列。
+// RUNNER_STRIDE_PIXELS 進むごとに1周し、走る速さがそのまま足の回転になる。
+const RUNNER_SPRITE_FRAMES = 8;
+const RUNNER_STRIDE_PIXELS = 40;
+// mask-position の x をコマごとに用意しておく（毎フレームの文字列生成を避ける）
+const RUNNER_FRAME_POSITIONS = Array.from(
+  { length: RUNNER_SPRITE_FRAMES },
+  (_, i) => `${(i * 100) / (RUNNER_SPRITE_FRAMES - 1)}% 0`,
+);
+// 各要素に今出ているコマ。変わったときだけ書き込む。
+const runnerFrameShown = [-1, -1, -1, -1];
 
 function renderPlayingRunners() {
   const rect = getPlayingSurfaceRect();
@@ -2903,8 +2917,22 @@ function renderPlayingRunners() {
       dy = next.y - runner.y;
     }
 
-    const deg = Math.atan2(dy, dx) * (180 / Math.PI);
-    el.style.transform = `translate(${runner.x}px, ${runner.y}px) rotate(${deg}deg)`;
+    // 走者は人型なので回さず立てたまま。進行方向へ体を向け、少しだけ前傾させる。
+    const len = Math.hypot(dx, dy) || 1;
+    const nx = dx / len;
+    const flip = nx < 0 ? -1 : 1;
+    const lean = Math.round(nx * 14);
+    el.style.transform =
+      `translate(${runner.x}px, ${runner.y}px) rotate(${lean}deg) scaleX(${flip})`;
+
+    // 足の運び（走った距離から決まるので、連打で加速すると速く回る）
+    const frame =
+      Math.floor((runner.stride || 0) * RUNNER_SPRITE_FRAMES) % RUNNER_SPRITE_FRAMES;
+    if (runnerFrameShown[i] !== frame) {
+      runnerFrameShown[i] = frame;
+      el.style.maskPosition = RUNNER_FRAME_POSITIONS[frame];
+      el.style.webkitMaskPosition = RUNNER_FRAME_POSITIONS[frame];
+    }
   });
 
   updatePlayingMode();
@@ -2939,7 +2967,7 @@ function updatePlayingThrowTargets() {
   elements.playingTagLabel.classList.toggle("is-hidden", !anyTaggable);
 }
 
-// 走者に当てる判定の半径（走者スプライトは34x20px）。
+// 走者に当てる判定の半径（走者スプライトは24x35px）。
 // アウトはこの判定のみで成立する。塁に送球しても何も起きない。
 const PLAYING_RUNNER_HIT_RADIUS = 24;
 
