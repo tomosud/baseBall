@@ -52,14 +52,27 @@ button {
 
 .main-box {
   display: grid;
-  gap: 14px;
+  gap: 26px;
   justify-items: center;
 }
 
+/* タイトル。2文字しかないので大きく置き、字間を開けて銘板のように見せる。 */
 .main-box h1 {
   margin: 0;
   font-size: 2rem;
   font-weight: 700;
+}
+
+/* `.main-box h1` の font-size より詳細度を上げておく（h1 側が 2rem で勝ってしまう） */
+.main-box h1.game-title {
+  font-size: clamp(3.4rem, 22vw, 6rem);
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  /* letter-spacing は最後の字の右にも入るので、その分だけ左に戻して中央に見せる */
+  margin-right: -0.16em;
+  line-height: 1.1;
+  color: #f2f2f2;
+  text-shadow: 0 0 26px rgba(79, 195, 247, 0.3);
 }
 
 .main-button {
@@ -656,10 +669,7 @@ button {
 
 #statusTeamBlue .status-team-name { color: #4fc3f7; }
 #statusTeamBlue .status-team-score { color: #4fc3f7; }
-#statusTeamRed .status-team-name {
-  color: #ff6b63;
-  font-size: 1.3rem;
-}
+#statusTeamRed .status-team-name { color: #ff6b63; }
 #statusTeamRed .status-team-score { color: #ff6b63; }
 
 .status-team.is-batting .status-team-score {
@@ -869,36 +879,37 @@ button {
   z-index: 3;
 }
 
+/* PITCHER / BATTER の役割ラベル。チーム名は得点表示が持っているので
+   ここでは役割だけを出し、誰の側かは色で示す。
+   上下で同じ字送り・同じ位置になるよう、値は左右対称にそろえてある。 */
 .playing-label {
   position: absolute;
   z-index: 4;
-  font-size: 0.9rem;
-  font-weight: 600;
+  left: calc(env(safe-area-inset-left) + 18px);
+  font-size: 0.82rem;
+  font-weight: 700;
   color: rgba(255, 255, 255, 0.45);
   pointer-events: none;
-  letter-spacing: 0.06em;
-  line-height: 1.4;
+  letter-spacing: 0.18em;
+  line-height: 1;
 }
 
 .playing-label.team-blue {
-  color: rgba(79, 195, 247, 0.72);
+  color: rgba(79, 195, 247, 0.7);
 }
 
 .playing-label.team-red {
-  color: rgba(255, 107, 99, 0.82);
-  font-size: 1.08rem;
-  font-weight: 800;
+  color: rgba(255, 107, 99, 0.7);
 }
 
+/* 上端の壁（52px）と得点表示（82px〜）を避け、区切り線から等距離に置く */
 .playing-label.is-pitcher {
-  top: calc(env(safe-area-inset-top) + 135px);
-  left: calc(env(safe-area-inset-left) + 12px);
+  top: calc(50% - 27px);
   transform: rotate(180deg);
 }
 
 .playing-label.is-batter {
-  top: calc(50% + 8px);
-  left: calc(env(safe-area-inset-left) + 12px);
+  top: calc(50% + 14px);
   transform: none;
 }
 
@@ -986,13 +997,17 @@ button {
   to   { opacity: 1.0; transform: translate(-50%, -50%) scale(1.05); }
 }
 
+/* nowrap のせいで長い文が画面外に切れていたので、折り返せるようにして
+   画面幅に収める。中央寄せは transform ではなく左右0＋text-align で取る。 */
 .playing-hint {
   position: absolute;
   bottom: calc(env(safe-area-inset-bottom) + 10px);
-  left: 50%;
-  transform: translateX(-50%);
-  white-space: nowrap;
+  left: 12px;
+  right: 12px;
+  margin: 0;
+  text-align: center;
   font-size: 0.72rem;
+  line-height: 1.4;
   color: rgba(255, 255, 255, 0.38);
   pointer-events: none;
   z-index: 4;
@@ -1145,10 +1160,6 @@ button {
 
   .status-team-name {
     font-size: 0.9rem;
-  }
-
-  #statusTeamRed .status-team-name {
-    font-size: 1.08rem;
   }
 
   .status-team-score {

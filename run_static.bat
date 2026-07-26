@@ -3,7 +3,7 @@ chcp 65001 >nul
 setlocal
 
 REM ========================================
-REM Baseball Prototype - Static Test Server
+REM Yakyu - Static Test Server
 REM Python簡易サーバーでリポジトリ直下を開く
 REM ========================================
 

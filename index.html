@@ -6,7 +6,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
-    <title>Baseball Prototype</title>
+    <title>や球</title>
     <!-- 走者スプライト。読み込み前は mask が効かず四角に見えるので先に取っておく -->
     <link rel="preload" as="image" href="assets/sprite/runner-run.png" />
     <script>document.write('<link rel="stylesheet" href="styles.css?v='+Date.now()+'">')</script>
@@ -14,15 +14,15 @@
   <body>
     <main class="screen main-screen" id="mainScreen">
       <div class="main-box">
-        <h1>Baseball Prototype</h1>
+        <h1 class="game-title">や球</h1>
         <div class="main-button-group">
-          <button type="button" class="main-button" id="openPlayingPrototype">Playing (9回)</button>
-          <button type="button" class="main-button" id="openPlayingPrototype3">Playing (3回)</button>
+          <button type="button" class="main-button" id="openPlayingPrototype">9回で対戦</button>
+          <button type="button" class="main-button" id="openPlayingPrototype3">3回で対戦</button>
         </div>
       </div>
     </main>
 
-    <section class="screen prototype-screen is-hidden" id="playingScreen" aria-label="playing prototype A">
+    <section class="screen prototype-screen is-hidden" id="playingScreen" aria-label="や球">
       <div class="playing-surface" id="playingSurface">
         <!-- 上部HUD（リセット＋イニング＋BSO） -->
         <div class="playing-status-bar" id="playingStatusBar">
@@ -79,8 +79,8 @@
         </div>
         <div class="playing-top-wall" id="playingTopWall" aria-hidden="true"></div>
         <div class="playing-divider" id="playingDivider" aria-hidden="true"></div>
-        <div class="playing-label is-pitcher" id="playingLabelPitcher" aria-hidden="true">Pitcher</div>
-        <div class="playing-label is-batter" id="playingLabelBatter" aria-hidden="true">Batter</div>
+        <div class="playing-label is-pitcher" id="playingLabelPitcher" aria-hidden="true">PITCHER</div>
+        <div class="playing-label is-batter" id="playingLabelBatter" aria-hidden="true">BATTER</div>
         <div class="overlay-trivia is-pitcher-side" id="overlayTriviaPitcher" aria-hidden="true"></div>
         <div class="overlay-trivia is-batter-side" id="overlayTriviaBatter" aria-hidden="true"></div>
         <div class="playing-run-label is-hidden" id="playingRunLabel" aria-hidden="true">RUN！RUN！RUN！</div>
@@ -122,7 +122,7 @@
         <div class="bat-hit-angle is-hidden" id="playingBatHitAngle" aria-hidden="true"></div>
         <div class="bat-reflect-angle is-hidden" id="playingBatReflectAngle" aria-hidden="true"></div>
         <div class="bat" id="playingBat" aria-hidden="true"></div>
-        <p class="hint playing-hint" id="playingHint">Pitcher: swipe up to pitch  /  Batter: swing up</p>
+        <p class="hint playing-hint" id="playingHint">円の中から上へスワイプ ／ バッターは上へ振る</p>
       </div>
     </section>
 

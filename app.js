@@ -323,6 +323,11 @@ function resetAtBat() {
   updateStatusBar();
 }
 
+// 画面下のヒント。英語の長文が横に溢れて切れていたので、短い日本語に統一した。
+const HINT_DEFAULT = "円の中から上へスワイプ ／ バッターは上へ振る";
+const HINT_PITCHED = "今だ！ 上へ振る";
+const HINT_FIELDING = "拾って走者にぶつけるとアウト";
+
 function updateStatusBar() {
   elements.statusScoreBlue.textContent = gameState.score[0];
   elements.statusScoreRed.textContent = gameState.score[1];
@@ -344,11 +349,9 @@ function updateStatusBar() {
   sDots.forEach((d, i) => d.classList.toggle("is-on", i < gameState.strikes));
   oDots.forEach((d, i) => d.classList.toggle("is-on", i < gameState.outs));
 
-  // チーム名ラベル（上半分=ピッチャーエリア、下半分=バッターエリア）
-  const pitcherName = teamLabel(gameState.isTop ? 1 : 0);
-  const batterName  = teamLabel(gameState.isTop ? 0 : 1);
-  elements.playingLabelPitcher.textContent = `${pitcherName}  PITCHER`;
-  elements.playingLabelBatter.textContent  = `${batterName}  BATTER`;
+  // 役割ラベル（上半分=ピッチャーエリア、下半分=バッターエリア）。
+  // チーム名と絵文字は得点表示が出しているので、ここでは役割だけ。
+  // 誰の側かは文字色（team-red / team-blue）で分かる。
 
   // エリア着色
   const pitcherColor = gameState.isTop ? "team-red"  : "team-blue";
@@ -3358,7 +3361,7 @@ function launchPlayingBall(vector) {
   updateContactableBall(elements.playingBall, false);
   showPlayingBall();
   updatePlayingCall("SWING!");
-  elements.playingHint.textContent = "Batter: swing up!";
+  elements.playingHint.textContent = HINT_PITCHED;
   updatePlayingDebug();
 }
 
@@ -3506,7 +3509,7 @@ function finishPlayingPitch(message = "READY") {
   updatePlayingCall(message);
   playingState.isPitched = false;
   playingState.nextPitchReadyAt = performance.now() + 800;
-  elements.playingHint.textContent = "Pitcher: swipe up to pitch  /  Batter: swing up";
+  elements.playingHint.textContent = HINT_DEFAULT;
   // フィールダーピックアップ／フィールダースロー状態をクリア（ドラッグ制限を次の通常投球に引き継がない）
   // isFielderThrow と isResting も同期してリセットすることで、次の beginPlayingPointer の
   // ballOnField 判定が古い状態を参照しないようにする。
@@ -3863,7 +3866,7 @@ function updatePlayingMode() {
       elements.playingLabelPitcher.classList.add("is-hidden");
       elements.playingLabelBatter.classList.add("is-hidden");
       elements.playingRunLabel.classList.remove("is-hidden");
-      elements.playingHint.textContent = "拾って走者にぶつけるとアウト";
+      elements.playingHint.textContent = HINT_FIELDING;
       elements.playingStrikeZone.classList.add("is-hidden");
       elements.playingHomeBase.classList.remove("is-hidden");
     }
@@ -3882,7 +3885,7 @@ function updatePlayingMode() {
       elements.playingLabelBatter.classList.remove("is-hidden");
       elements.playingRunLabel.classList.add("is-hidden");
       elements.playingTagLabel.classList.add("is-hidden");
-      elements.playingHint.textContent = "Pitcher: swipe up to pitch  /  Batter: swing up";
+      elements.playingHint.textContent = HINT_DEFAULT;
       elements.playingStrikeZone.classList.remove("is-hidden");
       elements.playingHomeBase.classList.add("is-hidden");
       // フィールディングモード用のピックアップ状態をクリア（ピッチャーのドラッグ制限を解除）
