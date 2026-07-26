@@ -4223,8 +4223,8 @@ function restoreRunnersFromSave(savedRunners) {
 }
 
 // ===== Sound Effects =====
-// MP3 アセットを使用。短い効果音は同時再生に備えてキーごとにプールし、
-// ループ系（走者の足音／ホームラン中のざわめき）は単一インスタンスを管理する。
+// MP3 アセットを Web Audio でデコードして鳴らす。
+// ループ系（走者の足音／ホームラン中のざわめき）はスロットで1本ずつ管理する。
 
 const SOUND_FILES = {
   start:        "assets/sound/airhorn.mp3",         // 試合開始/再開
@@ -4253,112 +4253,172 @@ const SOUND_VOLUMES = {
   gameEnd: 0.85, score: 0.8,
 };
 
-// 効果音は使い回す。以前は鳴らすたびに new Audio() していて、
-// 要素生成と読み込み・デコードがフレームに乗ってヒッチの原因になっていた。
-// 同じ音が重なる場合に備えて1キーあたり複数持ち、順番に使う。
-const SFX_POOL_SIZE = 3;
-const sfxPools = new Map();
+// 効果音は Web Audio（AudioContext + デコード済みバッファ）で鳴らす。
+//
+// <audio> 要素だとモバイルで次の問題が出る:
+//  - iOS はユーザー操作の中で play() を呼んだ要素しか以後鳴らせない。
+//    プールを操作の外で作ると「鳴ったり鳴らなかったり」になる。
+//  - 同時に再生できるメディア要素数に上限があり、超えると無音になる。
+//  - 再生中はOS/ブラウザに「メディア再生中」として登録され、音のアイコンが出る。
+// AudioContext ならどれも起きない。要素を作らないのでアイコンも出ない。
 
-function getSfxPool(key) {
-  let pool = sfxPools.get(key);
-  if (pool) return pool;
-  const src = SOUND_FILES[key];
-  if (!src) return null;
-  const volume = SOUND_VOLUMES[key] ?? 0.7;
-  const list = [];
-  for (let i = 0; i < SFX_POOL_SIZE; i += 1) {
-    const a = new Audio(src);
-    a.preload = "auto";
-    a.volume = volume;
-    list.push(a);
+let audioCtx = null;
+let audioUnlocked = false;
+const sfxBuffers = new Map();     // key -> AudioBuffer
+const sfxLoading = new Map();     // key -> Promise
+const loopSources = {};           // slot -> { source, gain }
+
+function getAudioContext() {
+  if (audioCtx) return audioCtx;
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return null;
+  try {
+    audioCtx = new Ctx();
+  } catch (_) {
+    audioCtx = null;
   }
-  pool = { list, next: 0 };
-  sfxPools.set(key, pool);
-  return pool;
+  return audioCtx;
 }
 
-// 画面を開いた時点で用意しておき、初回再生時の生成コストを外に出す。
-// ただし一度に全キーぶん作ると生成と先読みが固まって数十msのスパイクになるため、
-// 1キーずつ間隔を空けて作る。
-let sfxWarmQueue = null;
+// ユーザー操作の中で一度だけ呼ぶ。以後どのタイミングでも鳴らせるようになる。
+function unlockAudio() {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  if (ctx.state === "suspended") ctx.resume().catch(() => {});
+  if (audioUnlocked) return;
+  try {
+    // 無音を1サンプル鳴らして iOS のロックを外す
+    const buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(ctx.destination);
+    source.start(0);
+    audioUnlocked = true;
+  } catch (_) {}
+}
 
+// 最初の操作でアンロックする。ページのどこを触っても効くように document に付ける。
+["pointerdown", "touchend", "mousedown", "keydown"].forEach((type) => {
+  document.addEventListener(type, unlockAudio, { capture: true, passive: true });
+});
+
+function loadSfxBuffer(key) {
+  if (sfxBuffers.has(key)) return Promise.resolve(sfxBuffers.get(key));
+  const cached = sfxLoading.get(key);
+  if (cached) return cached;
+
+  const ctx = getAudioContext();
+  const src = SOUND_FILES[key];
+  if (!ctx || !src) return Promise.resolve(null);
+
+  const p = fetch(src)
+    .then((res) => res.arrayBuffer())
+    .then((buf) => new Promise((resolve, reject) => {
+      // Safari 系は Promise を返さない実装があるのでコールバック形式で呼ぶ
+      const ret = ctx.decodeAudioData(buf, resolve, reject);
+      if (ret && typeof ret.then === "function") ret.then(resolve, reject);
+    }))
+    .then((decoded) => {
+      sfxBuffers.set(key, decoded);
+      sfxLoading.delete(key);
+      return decoded;
+    })
+    .catch(() => {
+      sfxLoading.delete(key);
+      return null;
+    });
+
+  sfxLoading.set(key, p);
+  return p;
+}
+
+// 全キーを先に読み込んでおく。デコードはメインスレッド外なので
+// フレームには乗らないが、同時に走らせすぎないよう少しずつ流す。
 function warmUpSfx() {
-  if (sfxWarmQueue) return;
-  sfxWarmQueue = Object.keys(SOUND_FILES).filter((key) => !sfxPools.has(key));
-  const step = () => {
-    if (!sfxWarmQueue || sfxWarmQueue.length === 0) {
-      sfxWarmQueue = null;
-      return;
-    }
-    try { getSfxPool(sfxWarmQueue.shift()); } catch (_) {}
-    setTimeout(step, 70);
-  };
-  setTimeout(step, 70);
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  const keys = Object.keys(SOUND_FILES).filter((k) => !sfxBuffers.has(k) && !sfxLoading.has(k));
+  keys.forEach((key, i) => {
+    setTimeout(() => loadSfxBuffer(key), i * 40);
+  });
+}
+
+function playBuffer(buffer, volume, loop) {
+  const ctx = getAudioContext();
+  if (!ctx || !buffer) return null;
+  if (ctx.state === "suspended") ctx.resume().catch(() => {});
+  try {
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.loop = !!loop;
+    const gain = ctx.createGain();
+    gain.gain.value = volume;
+    source.connect(gain);
+    gain.connect(ctx.destination);
+    source.start(0);
+    return { source, gain };
+  } catch (_) {
+    return null;
+  }
 }
 
 function playSfx(key) {
-  try {
-    const pool = getSfxPool(key);
-    if (!pool) return;
-    const a = pool.list[pool.next];
-    pool.next = (pool.next + 1) % pool.list.length;
-    try { a.currentTime = 0; } catch (_) {}
-    const p = a.play();
-    if (p && typeof p.catch === "function") p.catch(() => {});
-  } catch (_) {}
+  const volume = SOUND_VOLUMES[key] ?? 0.7;
+  const buffer = sfxBuffers.get(key);
+  if (buffer) {
+    playBuffer(buffer, volume, false);
+    return;
+  }
+  // まだ読めていない場合は読み込んで、間に合うようなら鳴らす
+  const requestedAt = performance.now();
+  loadSfxBuffer(key).then((decoded) => {
+    if (decoded && performance.now() - requestedAt < 400) playBuffer(decoded, volume, false);
+  });
 }
 
-let _runnerLoopAudio = null;
-let _homerunLoopAudio = null;
-const loopAudioCache = {};
+function stopLoopSlot(slot) {
+  const entry = loopSources[slot];
+  if (!entry) return;
+  loopSources[slot] = null;
+  try { entry.source.stop(0); } catch (_) {}
+  try { entry.source.disconnect(); entry.gain.disconnect(); } catch (_) {}
+}
 
-// ループ音は1つだけ作って使い回す（走者が出るたびに生成しない）
-function getLoopAudio(slot, key) {
-  if (!loopAudioCache[slot]) {
-    const a = new Audio(SOUND_FILES[key]);
-    a.loop = true;
-    a.preload = "auto";
-    a.volume = SOUND_VOLUMES[key];
-    loopAudioCache[slot] = a;
+function startLoopSlot(slot, key) {
+  if (loopSources[slot]) return;
+  const volume = SOUND_VOLUMES[key] ?? 0.5;
+  const buffer = sfxBuffers.get(key);
+  if (buffer) {
+    loopSources[slot] = playBuffer(buffer, volume, true);
+    return;
   }
-  return loopAudioCache[slot];
+  // 読み込み待ち。待っている間に停止された場合は鳴らさない。
+  loopSources[slot] = { source: { stop() {}, disconnect() {} }, gain: { disconnect() {} }, pending: true };
+  const token = loopSources[slot];
+  loadSfxBuffer(key).then((decoded) => {
+    if (!decoded || loopSources[slot] !== token) return;
+    loopSources[slot] = playBuffer(decoded, volume, true);
+  });
 }
 
 function startRunnerLoop() {
-  if (_homerunLoopAudio) return; // ホームラン中は鳴らさない
-  if (_runnerLoopAudio) return;
-  try {
-    const a = getLoopAudio("runner", "runnerLoop");
-    try { a.currentTime = 0; } catch (_) {}
-    const p = a.play();
-    if (p && typeof p.catch === "function") p.catch(() => {});
-    _runnerLoopAudio = a;
-  } catch (_) {}
+  if (loopSources.homerun) return;   // ホームラン中は鳴らさない
+  startLoopSlot("runner", "runnerLoop");
 }
 
 function stopRunnerLoop() {
-  if (!_runnerLoopAudio) return;
-  try { _runnerLoopAudio.pause(); } catch (_) {}
-  _runnerLoopAudio = null;
+  stopLoopSlot("runner");
 }
 
 function startHomerunLoop() {
   stopRunnerLoop();
-  if (_homerunLoopAudio) return;
+  if (loopSources.homerun) return;
   playSfx("homerunCheer");
-  try {
-    const a = getLoopAudio("homerun", "homerunLoop");
-    try { a.currentTime = 0; } catch (_) {}
-    const p = a.play();
-    if (p && typeof p.catch === "function") p.catch(() => {});
-    _homerunLoopAudio = a;
-  } catch (_) {}
+  startLoopSlot("homerun", "homerunLoop");
 }
 
 function stopHomerunLoop() {
-  if (!_homerunLoopAudio) return;
-  try { _homerunLoopAudio.pause(); } catch (_) {}
-  _homerunLoopAudio = null;
+  stopLoopSlot("homerun");
 }
 
 // 旧 WebAudio 合成は MP3 ベースに置き換え。互換のためのラッパー:
