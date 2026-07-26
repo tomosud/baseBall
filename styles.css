@@ -28,6 +28,7 @@ body {
 
 body {
   min-height: 100vh;
+  min-height: 100svh;
   overscroll-behavior: none;
   user-select: none;
   -webkit-user-select: none;
@@ -40,7 +41,10 @@ button {
 }
 
 .screen {
+  /* iOS Safari の 100vh はツールバーを隠した高さ。svh（最小ビューポート）にすると
+     常に見える範囲に収まり、ツールバーの出入りで高さが動かない。 */
   min-height: 100vh;
+  min-height: 100svh;
 }
 
 .main-screen {
@@ -119,6 +123,7 @@ button {
 .pitch-surface {
   position: relative;
   min-height: 100vh;
+  min-height: 100svh;
   overflow: hidden;
   background: var(--bg-prototype);
   touch-action: none;
@@ -604,6 +609,7 @@ button {
 .playing-surface {
   position: relative;
   min-height: 100vh;
+  min-height: 100svh;
   overflow: hidden;
   background: var(--bg-prototype);
   touch-action: none;
@@ -1001,7 +1007,7 @@ button {
    画面幅に収める。中央寄せは transform ではなく左右0＋text-align で取る。 */
 .playing-hint {
   position: absolute;
-  bottom: calc(env(safe-area-inset-bottom) + 10px);
+  bottom: calc(env(safe-area-inset-bottom) + 16px);
   left: 12px;
   right: 12px;
   margin: 0;
