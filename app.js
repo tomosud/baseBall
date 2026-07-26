@@ -2964,9 +2964,10 @@ function updatePlayingThrowTargets() {
   elements.playingTagLabel.classList.toggle("is-hidden", !anyTaggable);
 }
 
-// 走者に当てる判定の半径（走者スプライトは24x35px）。
+// 走者に当てる判定の半径。走者スプライト（24x35px）はそのままで、判定だけ
+// 以前の 24px から 0.7 倍に絞ってある。輪（.runner-target-ring）も同じ 0.7 倍。
 // アウトはこの判定のみで成立する。塁に送球しても何も起きない。
-const PLAYING_RUNNER_HIT_RADIUS = 24;
+const PLAYING_RUNNER_HIT_RADIUS = 17;
 
 // 点と線分の距離。送球は1フレームで大きく進むため、線分で走査して抜けを防ぐ。
 function distancePointToSegment(px, py, ax, ay, bx, by) {
