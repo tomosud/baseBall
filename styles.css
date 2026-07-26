@@ -1329,7 +1329,8 @@ button {
   mask-size: 800% 100%;
   -webkit-mask-position: 0% 0;
   mask-position: 0% 0;
-  transform-origin: 50% 72%;
+  /* 進行方向へ回すので、判定点（走者の座標）＝要素の中心を軸にする */
+  transform-origin: center center;
   pointer-events: none;
 }
 

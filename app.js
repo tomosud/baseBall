@@ -2917,13 +2917,10 @@ function renderPlayingRunners() {
       dy = next.y - runner.y;
     }
 
-    // 走者は人型なので回さず立てたまま。進行方向へ体を向け、少しだけ前傾させる。
-    const len = Math.hypot(dx, dy) || 1;
-    const nx = dx / len;
-    const flip = nx < 0 ? -1 : 1;
-    const lean = Math.round(nx * 14);
-    el.style.transform =
-      `translate(${runner.x}px, ${runner.y}px) rotate(${lean}deg) scaleX(${flip})`;
+    // スプライトは頭が上・足が下なので、足（ローカル +y = 90°）が進行方向を
+    // 向くように deg - 90 だけ回す。
+    const deg = Math.atan2(dy, dx) * (180 / Math.PI);
+    el.style.transform = `translate(${runner.x}px, ${runner.y}px) rotate(${deg - 90}deg)`;
 
     // 足の運び（走った距離から決まるので、連打で加速すると速く回る）
     const frame =
