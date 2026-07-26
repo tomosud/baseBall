@@ -156,7 +156,6 @@ const playingState = {
   isDeepHit: false,
   restDelayElapsed: 0,
   // コーナー二塁打ゾーンに届いた打球（深い打球より長い遅延）
-  isCornerHit: false,
   // fielder throw state
   isFielderThrow: false,
   // 送球が「生きている」か。拾って投げた瞬間に true、壁に触れた時点で false。
@@ -628,11 +627,6 @@ const physics = {
   ballTailLengthScale: 0.14,
   ballTailMaxLength: 110,
   ballTailMinSpeed: 140,
-  // コーナー二塁打ゾーン: 上壁沿い左右コーナーの幅（画面幅比）と高さ（px）
-  cornerZoneWidthRatio: 0.2,
-  cornerZoneHeight: 70,
-  // コーナーゾーンに届いた打球が拾えるまでの遅延（秒）: 深い打球よりさらに長い
-  cornerZonePickupDelay: 1.2,
   // --- ピッチャーマウンド ---
   // 通常投球はこの円の中からしか開始できない。ゲームの流れの中での
   // 意図しないタップが投球開始になってしまうのを防ぐ。
@@ -2650,6 +2644,17 @@ function getPlayingMound(rect) {
   };
 }
 
+// 指の下にボールが隠れて「掴んでいるか」が分からないので、
+// 実際にボールを持って投げられる間だけマウンドの円を赤くする。
+// 守備の拾い直し（isFielderThrow）は円の外で起きるうえ、
+// 走者モード中はマウンド自体を隠しているので対象外。
+function updatePlayingMoundHold() {
+  elements.playingMound.classList.toggle(
+    "is-holding",
+    playingState.pitcherPointerId !== null && !playingState.isFielderThrow,
+  );
+}
+
 function isInsidePlayingMound(x, y) {
   const mound = getPlayingMound(getPlayingSurfaceRect());
   return Math.hypot(x - mound.x, y - mound.y) <= mound.radius;
@@ -3213,6 +3218,7 @@ function startPlayingSwing(vector) {
 function resetPlayingState() {
   stopPlayingAnimation();
   playingState.pitcherPointerId = null;
+  updatePlayingMoundHold();
   playingState.pitcherTrail = [];
   playingState.pitcherReleaseCurve = 0;
   playingState.pitchOriginX = null;
@@ -3263,7 +3269,6 @@ function resetPlayingState() {
   playingState.runnerBoost = 0;
   playingState.isDeepHit = false;
   playingState.restDelayElapsed = 0;
-  playingState.isCornerHit = false;
   elements.playingBat.classList.remove("is-swinging", "is-hit");
   elements.playingBatHitAngle.classList.add("is-hidden");
   elements.playingBatReflectAngle.classList.add("is-hidden");
@@ -3307,7 +3312,6 @@ function launchPlayingBall(vector) {
   playingState.pitchLeftPitcherArea = false;
   playingState.isDeepHit = false;
   playingState.restDelayElapsed = 0;
-  playingState.isCornerHit = false;
   elements.playingBat.classList.remove("is-hit");
   elements.playingBatHitAngle.classList.add("is-hidden");
   elements.playingBatReflectAngle.classList.add("is-hidden");
@@ -3477,7 +3481,6 @@ function finishPlayingPitch(message = "READY") {
   playingState.isResting = false;
   playingState.isDeepHit = false;
   playingState.restDelayElapsed = 0;
-  playingState.isCornerHit = false;
 }
 
 function animatePlaying(timeStamp) {
@@ -3623,16 +3626,6 @@ function animatePlaying(timeStamp) {
       applyPlayingEdgeBounce(rect);
       setPlayingBallPosition(playingState.ballX, playingState.ballY);
 
-      // コーナー二塁打ゾーン到達判定（打球のみ）
-      if (playingState.isHit && !playingState.isCornerHit) {
-        const wallY = getPlayingTopWallY();
-        const inCornerBand = playingState.ballY <= wallY + physics.cornerZoneHeight;
-        const inCornerSide =
-          playingState.ballX <= rect.width * physics.cornerZoneWidthRatio ||
-          playingState.ballX >= rect.width * (1 - physics.cornerZoneWidthRatio);
-        if (inCornerBand && inCornerSide) playingState.isCornerHit = true;
-      }
-
     }
 
     // 速度二百以上のヒット球は青く表示
@@ -3714,11 +3707,8 @@ function animatePlaying(timeStamp) {
     // 速すぎて連続アウト（併殺）が簡単になりすぎるため倍率を廃止
     const effectiveRestSpeed = physics.battingRestSpeed;
     if ((playingState.isHit || playingState.isFielderThrow) && !playingState.isResting && playingState.currentSpeed <= effectiveRestSpeed) {
-      // 深い打球・コーナー打球は静止後すぐには拾えない（野手が外野まで取りに行く時間）
-      const pickupDelay = playingState.isCornerHit
-        ? physics.cornerZonePickupDelay
-        : physics.deepHitPickupDelay;
-      if ((playingState.isDeepHit || playingState.isCornerHit) && playingState.restDelayElapsed < pickupDelay) {
+      // 深い打球は静止後すぐには拾えない（野手が外野まで取りに行く時間）
+      if (playingState.isDeepHit && playingState.restDelayElapsed < physics.deepHitPickupDelay) {
         playingState.restDelayElapsed += dt;
         elements.playingBall.classList.add("is-deep-delay");
       } else {
@@ -3945,7 +3935,6 @@ function beginPlayingPointer(event) {
       playingState.pickupY = point.y;
       playingState.isDeepHit = false;
       playingState.restDelayElapsed = 0;
-      playingState.isCornerHit = false;
       elements.playingBall.classList.remove("is-resting", "is-deep-delay");
       hidePlayingBall();
     }
@@ -3987,6 +3976,7 @@ function beginPlayingPointer(event) {
     playingState.pitcherTrail = [];
     setPlayingBallPosition(point.x, point.y);
     showPlayingBall();
+    updatePlayingMoundHold();
     pushPlayingPitcherTrail(point.x, point.y, event.timeStamp);
   } else {
     // バッター側
@@ -4047,6 +4037,7 @@ function endPlayingPointer(event) {
   if (event.pointerId === playingState.pitcherPointerId) {
     pushPlayingPitcherTrail(point.x, point.y, event.timeStamp);
     playingState.pitcherPointerId = null;
+    updatePlayingMoundHold();
     const vector = getPlayingPitcherReleaseVector();
     if (!vector || vector.speed < 120) {
       // 弱投 → 方向保持ソフトリリース

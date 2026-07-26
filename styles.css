@@ -447,32 +447,6 @@ button {
   transition: width 0.08s linear;
 }
 
-/* コーナー二塁打ゾーン: 上壁沿い左右コーナーの薄い破線囲い */
-.corner-zone {
-  position: absolute;
-  top: calc(env(safe-area-inset-top) + 54px);
-  width: 20%;
-  height: 70px;
-  border: 1.5px dashed rgba(79, 195, 247, 0.28);
-  pointer-events: none;
-  z-index: 2;
-}
-
-.corner-zone-left {
-  left: 0;
-  border-left: none;
-  border-top: none;
-  border-bottom-right-radius: 26px;
-}
-
-.corner-zone-right {
-  right: 0;
-  border-right: none;
-  border-top: none;
-  border-bottom-left-radius: 26px;
-}
-
-
 /* 芯で捉えたときのポップ表示 */
 .sweet-spot-pop {
   position: absolute;
@@ -1220,6 +1194,15 @@ button {
   pointer-events: none;
 }
 
+/* ボールを掴んでいて投げられる状態。指の下にボールが隠れて見えないため、
+   マウンドの円を赤くして「今持っている」ことを示す。 */
+.playing-mound.is-holding {
+  border-color: rgba(255, 69, 58, 0.95);
+  border-style: solid;
+  background: rgba(255, 69, 58, 0.14);
+  box-shadow: 0 0 14px rgba(255, 69, 58, 0.5), inset 0 0 12px rgba(255, 69, 58, 0.25);
+}
+
 .playing-mound-center {
   position: absolute;
   top: 50%;
@@ -1227,6 +1210,11 @@ button {
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.55);
   box-shadow: 0 0 8px rgba(255, 255, 255, 0.26);
+}
+
+.playing-mound.is-holding .playing-mound-center {
+  background: #ff453a;
+  box-shadow: 0 0 12px rgba(255, 69, 58, 0.9);
 }
 
 /* 塁は的ではなくなったので、位置だけ分かる薄い波線の輪郭にする */
