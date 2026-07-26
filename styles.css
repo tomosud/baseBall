@@ -764,6 +764,33 @@ button {
   min-height: 1.5em;
 }
 
+/* 回の変わり目に出す野球豆知識。1台を2人で挟んで持つので、
+   ピッチャー側（上半分）とバッター側（下半分）に1つずつ、
+   ピッチャー側は180度回して向かい合わせに出す。 */
+.overlay-trivia {
+  position: absolute;
+  left: 20px;
+  right: 20px;
+  font-family: var(--font-emoji);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.78);
+  text-align: center;
+  text-wrap: balance;
+  pointer-events: none;
+}
+
+/* マウンドの円と中央の CHANGE! の間に挟む。
+   端に寄せるとラベルやマウンドに重なるので、中央寄りに置いている。 */
+.overlay-trivia.is-pitcher-side {
+  top: 36%;
+  transform: rotate(180deg);
+}
+
+.overlay-trivia.is-batter-side {
+  bottom: 36%;
+}
+
 .overlay-button {
   margin-top: 8px;
   padding: 10px 28px;

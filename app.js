@@ -264,6 +264,8 @@ const elements = {
   playingOverlay: document.getElementById("playingOverlay"),
   overlayMessage: document.getElementById("overlayMessage"),
   overlaySub: document.getElementById("overlaySub"),
+  overlayTriviaPitcher: document.getElementById("overlayTriviaPitcher"),
+  overlayTriviaBatter: document.getElementById("overlayTriviaBatter"),
   overlayButton: document.getElementById("overlayButton"),
   playingAreaTop: document.getElementById("playingAreaTop"),
   playingAreaBottom: document.getElementById("playingAreaBottom"),
@@ -453,7 +455,7 @@ function gameDoChange() {
 
   stopCrowdCheer();
   playSoundChime();
-  showOverlay("CHANGE!", "", false);
+  showOverlay("CHANGE!", "", false, pickBaseballTrivia());
   setTimeout(() => {
     hideOverlay();
     // 表→裏 or 裏→次回
@@ -481,7 +483,8 @@ function gameDoChange() {
     playingState.isRunning = true;
     playingState.animationFrameId = window.requestAnimationFrame(animatePlaying);
     updatePlayingCall("READY");
-  }, 1800);
+    // 豆知識1行を読み切れる長さ。短いと出す意味がないので 1800ms から延ばしている。
+  }, 3200);
 }
 
 function gameDoGameSet() {
@@ -502,10 +505,62 @@ function gameDoGameSet() {
   showOverlay("GAME SET!", `${teamLabel(0)} ${blue} - ${red} ${teamLabel(1)}\n${winner}`, true);
 }
 
-function showOverlay(message, sub, showButton) {
+// 回の変わり目に出す野球豆知識。1行で読み切れる長さに収めている。
+const BASEBALL_TRIVIA = [
+  "ボールの縫い目は108針ある",
+  "投手板から本塁までは18.44m",
+  "塁と塁の間はきっかり90フィート",
+  "マウンドは平地より25.4cm高い",
+  "マウンドの円は直径5.49mある",
+  "公式球の重さは141.7〜148.8g",
+  "球の大きさは直径でなく周囲で決める",
+  "バットは106.7cmを超えると使えない",
+  "ホームベースだけ五角形。他の塁は正方形",
+  "ホームベースは地面と同じ高さに埋める",
+  "「バッテリー」は投手と捕手のペアのこと",
+  "内野が菱形なので「ダイヤモンド」と呼ぶ",
+  "一塁だけは駆け抜けてもアウトにならない",
+  "2ストライク後のファウルは三振にならない",
+  "犠牲フライは打数に数えず打率が下がらない",
+  "四球も打数に数えない。打率は動かない",
+  "インフィールドフライは併殺を防ぐルール",
+  "ボークは走者を欺く投球動作への罰",
+  "先発は5回投げないと勝ち投手になれない",
+  "守備位置は数字で書く。投手1、捕手2",
+  "6-4-3の併殺は遊撃→二塁→一塁の順",
+  "捕手と一塁手のグラブだけ「ミット」",
+  "サヨナラ勝ちは英語で walk-off",
+  "デッドボールは和製英語。hit by pitch",
+  "ナイターも和製英語。英語は night game",
+  "ノーヒットノーランは英語で no-hitter",
+  "英語の cleanup は4番打者だけを指す",
+  "「ゴロ」は grounder がなまったもの",
+  "7回の伸びをセブンスイニングストレッチという",
+  "「K」は struck out の最後の音から",
+];
+let lastTriviaIndex = -1;
+
+function pickBaseballTrivia() {
+  if (BASEBALL_TRIVIA.length < 2) return BASEBALL_TRIVIA[0] || "";
+  let index = lastTriviaIndex;
+  // 2回続けて同じ豆知識が出ないようにする
+  while (index === lastTriviaIndex) {
+    index = Math.floor(Math.random() * BASEBALL_TRIVIA.length);
+  }
+  lastTriviaIndex = index;
+  return BASEBALL_TRIVIA[index];
+}
+
+function showOverlay(message, sub, showButton, trivia = "") {
   elements.overlayMessage.textContent = message;
   elements.overlaySub.textContent = sub;
   elements.overlayButton.classList.toggle("is-hidden", !showButton);
+  // 豆知識はピッチャー側とバッター側の両方に、同じ文を向かい合わせで出す
+  const text = trivia ? `⚾ ${trivia}` : "";
+  elements.overlayTriviaPitcher.textContent = text;
+  elements.overlayTriviaBatter.textContent = text;
+  elements.overlayTriviaPitcher.classList.toggle("is-hidden", !trivia);
+  elements.overlayTriviaBatter.classList.toggle("is-hidden", !trivia);
   elements.playingOverlay.classList.remove("is-hidden");
 }
 
