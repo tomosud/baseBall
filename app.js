@@ -621,8 +621,10 @@ const physics = {
   batHitPowerScale: 0.55,
   // スイングの勢い（impulse）の頭打ち。impulse_eff = ref × tanh(impulse / ref)。
   // 速く振るほど強いのは保ったまま、速く振るだけでは打球速度の上限に張り付かないようにする。
-  // 0 で無効（impulse をそのまま使う）。
-  batImpulseRef: 0,
+  // 打球速度の上限はおよそ 120 + 1.1 × ref。ホームランは打球速度 850 前後から出るので、
+  // 780（上限 ≈ 980）で「芯で捉えた速いスイングだけ」がホームランになる。0 で無効。
+  // 根拠: docs/balance/tune/tuneA2-notes-20261002.md
+  batImpulseRef: 780,
   batMoveScale: 1,
   batMoveYScale: 1,
   batVerticalRangeRatio: 2,

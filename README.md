@@ -265,6 +265,8 @@ python -m http.server 8765 --bind 127.0.0.1
 | 名前 | 値 | 意味 |
 | --- | --- | --- |
 | `battingSwingThreshold` | 330 | スイングと判定するスワイプ速度 |
+| `batHitPowerScale` | 0.55 | スワイプ速度 → スイングの勢い（impulse）の倍率 |
+| `batImpulseRef` | 780 | 勢いの頭打ち（`ref × tanh(impulse / ref)`）。速く振るだけでは打球速度の上限に張り付かない。打球速度の上限はおよそ `120 + 1.1 × ref` |
 | `batContactRadius` | 35 | バットの当たり判定半径 |
 | `battingSwingLingerDuration` | 0.085 | スイング後も当たり続ける猶予（秒） |
 | `homeRunClearRatio` | 0.18 | ホームランに必要な壁越えの余力（盤面比） |
