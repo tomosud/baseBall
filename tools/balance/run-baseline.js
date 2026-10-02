@@ -28,6 +28,8 @@ const OUT = path.resolve(ROOT, arg("out", "docs/balance"));
 const BAT_LEAD = Number(arg("batLead", 0.16));
 const BAT_SWEET = Number(arg("batSweet", 30));
 const LABEL = arg("label", "baseline");
+// physics の上書き（JSON）。例: --physics '{"batHitPowerScale":0.4}'
+const PHYSICS = JSON.parse(arg("physics", "{}"));
 
 const JP = { novice: "初級", mid: "中級", expert: "上級" };
 
@@ -52,7 +54,7 @@ try {
       const job = queue.shift();
       const r = await playGame(browser, server.url, {
         innings: INNINGS, teams: { blue: job.blue, red: job.red }, seed: job.seed,
-        batLead: BAT_LEAD, batSweetOffset: BAT_SWEET,
+        batLead: BAT_LEAD, batSweetOffset: BAT_SWEET, physics: PHYSICS,
       });
       results.push({ ...r, cell: `${job.blue}-${job.red}` });
       done++;
@@ -71,7 +73,7 @@ try {
 // ---- 保存 ----
 const rawPath = path.join(OUT, "raw", `${LABEL}-${stamp}.json`);
 // 生データは数MBになるので gzip で置く（zcat で戻せる）
-fs.writeFileSync(`${rawPath}.gz`, zlib.gzipSync(JSON.stringify({ innings: INNINGS, games: GAMES, skills: SKILLS, batLead: BAT_LEAD, batSweet: BAT_SWEET, results })));
+fs.writeFileSync(`${rawPath}.gz`, zlib.gzipSync(JSON.stringify({ innings: INNINGS, games: GAMES, skills: SKILLS, batLead: BAT_LEAD, batSweet: BAT_SWEET, physics: PHYSICS, results })));
 
 // ---- 集計 ----
 const byCell = {};
@@ -84,7 +86,7 @@ const cellName = (k) => k.split("-").map((s) => JP[s] || s).join(" vs ");
 
 let md = `# ベースライン計測 ${stamp}\n\n`;
 md += `- 形式: ${INNINGS}回制 / カードあたり ${GAMES} 試合 / 腕前 ${SKILLS.map((s) => JP[s]).join("・")}\n`;
-md += `- 盤面 420×860、物理パラメータは現在値（変更なし）。打者定数 lead=${BAT_LEAD}s, sweet=${BAT_SWEET}px\n`;
+md += `- 盤面 420×860、物理パラメータ: ${Object.keys(PHYSICS).length ? JSON.stringify(PHYSICS) : "現在値（変更なし）"}。打者定数 lead=${BAT_LEAD}s, sweet=${BAT_SWEET}px\n`;
 md += `- 生データ: \`${path.relative(ROOT, rawPath)}\`\n\n`;
 
 md += `## 1. 勝敗と得点（試合の形）\n\n`;
