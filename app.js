@@ -693,14 +693,15 @@ const physics = {
   // ---- 打球の強さの決まり方 ----
   // "timing": 強さはタイミングの正確さと芯で決まる。スワイプの速さは「足りているか」だけ（普通に振れば満タン）。
   // "swing":  旧方式。強さはスワイプの速さ（impulse）に比例。
-  // 当たる（接触の窓は広いまま）けど、上手く合わせないと飛ばない、にするため。docs/balance/tune/tuneT-notes-*.md
+  // 当たる（接触の窓は広いまま）けど、上手く合わせないと飛ばない、にするため。docs/balance/tune/tuneT-notes-20261002.md
   batPowerModel: "timing",
   // タイミング方式の打球の勢いの上限（旧方式の impulse に相当。打球速度の上限 ≈ 120 + 1.1 × これ）
   batHitPowerMax: 780,
   // これ以上の impulse（圧縮前）で「振りが足りている」とみなす。下回ると比例して弱くなる
   batFullSwingImpulse: 500,
-  // タイミングのずれ（秒）: この範囲は満点、そこから batTimingFalloff 秒かけて batTimingFloor まで下がる
-  batTimingPerfect: 0.015,
+  // タイミングのずれ（秒）: この範囲は満点、そこから batTimingFalloff 秒かけて batTimingFloor まで下がる。
+  // 満点の幅は 15ms → 10ms（上級同士の得点 56 → 27、中級同士は変わらず）
+  batTimingPerfect: 0.010,
   batTimingFalloff: 0.045,
   batTimingFloor: 0.3,
   // ホームランに必要なタイミング係数（1 = 満点の範囲内のときだけ）
@@ -3443,7 +3444,9 @@ function spawnBatPop(text, kind) {
   pop.className = `bat-pop is-${kind}`;
   pop.textContent = text;
   pop.style.left = `${playingState.batX + physics.batLength * 0.5}px`;
-  pop.style.top = `${playingState.batY - 18}px`;
+  // 打ったあとは下に連打エリア（「連打で加速!!」）が出るので、その線より上に出す
+  const boostTop = getPlayingSurfaceRect().height * physics.runnerBoostAreaTopRatio;
+  pop.style.top = `${Math.min(playingState.batY - 18, boostTop - 16)}px`;
   elements.playingSurface.appendChild(pop);
   setTimeout(() => pop.remove(), 900);
 }
