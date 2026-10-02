@@ -166,6 +166,9 @@ const playingState = {
   pickupY: 0,
   // swing miss flag (reset per pitch)
   swingMissed: false,
+  // この投球で振ったか、球がバットの高さを通過したときの様子（空振りの理由を出すため）
+  swungThisPitch: false,
+  pitchCross: null,
 };
 
 const elements = {
@@ -3269,6 +3272,7 @@ function reflectPlayingBallFromBat() {
   if (playingState.lastHitQuality >= 0.85) {
     spawnSweetSpotPop(playingState.ballX, playingState.ballY);
   }
+  showHitTimingPop();
   playingState.swingMissed = false; // ヒットしたので空振り記録をクリア
   spawnRunnerOnHit();
   resetAtBat();
@@ -3413,7 +3417,68 @@ function triggerHomeRun() {
 }
 
 function startPlayingSwing(vector) {
-  startBatModelSwing(playingState, elements.playingBat, vector);
+  const started = startBatModelSwing(playingState, elements.playingBat, vector);
+  if (started && playingState.isPitched && !playingState.isHit && !playingState.isFielderThrow) {
+    playingState.swungThisPitch = true;
+    // 判定が済んだあとに振った = 完全に振り遅れ
+    if (playingState.pitchJudged) showSwingMissReason("late");
+  }
+}
+
+// ---- 空振り・当たりの理由の表示 ----
+// 当たっても上手く合わせないと飛ばない（batPowerModel: "timing"）ので、
+// 何が悪かったか（早い・遅い・横のずれ）をバットの上に短く出す。数字は出さない。
+const SWING_REASON_TEXT = {
+  early: "早い！",
+  late: "遅い！",
+  left: "← ずれ",
+  right: "ずれ →",
+  just: "ジャスト！",
+  slightlyEarly: "少し早い",
+  slightlyLate: "少し遅い",
+};
+
+function spawnBatPop(text, kind) {
+  const pop = document.createElement("div");
+  pop.className = `bat-pop is-${kind}`;
+  pop.textContent = text;
+  pop.style.left = `${playingState.batX + physics.batLength * 0.5}px`;
+  pop.style.top = `${playingState.batY - 18}px`;
+  elements.playingSurface.appendChild(pop);
+  setTimeout(() => pop.remove(), 900);
+}
+
+// 空振りの理由を決めて出す。1球に1回だけ。
+function showSwingMissReason(forced = null) {
+  if (playingState.missReasonShown) return;
+  playingState.missReasonShown = true;
+  let reason = forced;
+  if (!reason) {
+    const c = playingState.pitchCross;
+    if (!c) {
+      reason = "early"; // 振り終わっても球がまだ来ていない
+    } else if (!c.swung) {
+      reason = "late"; // 球が通り過ぎてから振った
+    } else if (c.x < c.batLeft) {
+      reason = "left";
+    } else if (c.x > c.batRight) {
+      reason = "right";
+    } else {
+      reason = c.timingError < 0 ? "early" : "late";
+    }
+  }
+  spawnBatPop(SWING_REASON_TEXT[reason], reason === "early" || reason === "late" ? reason : "off");
+}
+
+// 当たったときのタイミングの出来。満点の範囲なら「ジャスト！」、外れていれば早い・遅い。
+function showHitTimingPop() {
+  if (physics.batPowerModel !== "timing") return;
+  const f = playingState.lastTimingFactor ?? 0;
+  const e = playingState.lastTimingError ?? 0;
+  if (f >= 1) { spawnBatPop(SWING_REASON_TEXT.just, "just"); return; }
+  const early = e < 0;
+  if (f >= 0.65) spawnBatPop(SWING_REASON_TEXT[early ? "slightlyEarly" : "slightlyLate"], early ? "early" : "late");
+  else spawnBatPop(SWING_REASON_TEXT[early ? "early" : "late"], early ? "early" : "late");
 }
 
 function resetPlayingState() {
@@ -3520,6 +3585,9 @@ function launchPlayingBall(vector) {
   playingState.isPitched = true;
   playingState.pitchJudged = false;
   playingState.pitchLeftPitcherArea = false;
+  playingState.swungThisPitch = false;
+  playingState.pitchCross = null;
+  playingState.missReasonShown = false;
   playingState.isDeepHit = false;
   playingState.restDelayElapsed = 0;
   elements.playingBat.classList.remove("is-hit");
@@ -3728,6 +3796,7 @@ function animatePlaying(timeStamp) {
         playingState.pitchJudged = true;
         playSoundSwingMiss();
         updatePlayingCall("STRIKE", "is-strike");
+        showSwingMissReason();
         gameProcessStrike();
       }
     }
@@ -3846,6 +3915,23 @@ function animatePlaying(timeStamp) {
 
     updatePlayingBallTail();
 
+    // 球がバットの高さを通過した瞬間を覚えておく（空振りの理由: 早い・遅い・横のずれ）
+    if (
+      !playingState.pitchCross &&
+      playingState.isPitched && !playingState.isHit && !playingState.isFielderThrow &&
+      previousY < playingState.batY && playingState.ballY >= playingState.batY
+    ) {
+      const k = (playingState.batY - previousY) / Math.max(1e-6, playingState.ballY - previousY);
+      const swingActive = playingState.isSwinging || playingState.swingLingerTimer > 0;
+      playingState.pitchCross = {
+        x: previousX + (playingState.ballX - previousX) * k,
+        swung: swingActive,
+        batLeft: playingState.batX - physics.batContactRadius,
+        batRight: playingState.batX + physics.batLength + physics.batContactRadius,
+        timingError: swingActive ? getSwingTimingError(playingState) : 0,
+      };
+    }
+
     // バットとの接触判定
     if (
       (playingState.isSwinging || playingState.swingLingerTimer > 0) &&
@@ -3891,6 +3977,7 @@ function animatePlaying(timeStamp) {
         playingState.pitchJudged = true;
         const isStrike = playingState.bounceCount === 0;
         updatePlayingCall(isStrike ? "STRIKE" : "BALL", isStrike ? "is-strike" : "is-ball");
+        if (playingState.swungThisPitch) showSwingMissReason();
         if (isStrike) { playSoundStrike(); gameProcessStrike(); } else { playSoundBall(); gameProcessBall(); }
       }
     }
