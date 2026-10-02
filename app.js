@@ -2365,6 +2365,7 @@ let cancelResetHold = () => {};
   const choiceOverlay = document.getElementById("resetChoiceOverlay");
   const btn3 = document.getElementById("resetChoice3");
   const btn9 = document.getElementById("resetChoice9");
+  const btnTitle = document.getElementById("resetChoiceTitle");
 
   function showIndicator() {
     indicatorBar.classList.remove("is-filling");
@@ -2425,6 +2426,22 @@ let cancelResetHold = () => {};
       setTimeout(() => { choosing = false; }, 500);
     };
   }
+  // タイトルへ戻る（試合は破棄。保存も消すので、次に開いたときはタイトルから始まる）
+  function goTitle(e) {
+    if (choosing) return;
+    choosing = true;
+    e.preventDefault();
+    e.stopPropagation();
+    fullReset();
+    clearSaveData();
+    gameState.phase = "pregame";
+    gameState.solo = null;
+    updatePlayingFlip();
+    showMainScreen();
+    setTimeout(() => { choosing = false; }, 500);
+  }
+  btnTitle.addEventListener("pointerdown", goTitle);
+  btnTitle.addEventListener("click", goTitle);
   btn3.addEventListener("pointerdown", chooseInnings(3));
   btn9.addEventListener("pointerdown", chooseInnings(9));
   btn3.addEventListener("click", chooseInnings(3));
@@ -4734,3 +4751,23 @@ async function checkForNewerHtml() {
   }
 }
 checkForNewerHtml();
+
+// タイトルに版（配信中の index.html / app.js / cpu.js / styles.css のうち最も新しい更新日時）を出す。
+// 遊んでいる版が最新かを目で確かめるため。更新日時が取れない配信（file:// など）では何も出さない。
+async function showBuildVersion() {
+  const el = document.getElementById("mainVersion");
+  if (!el) return;
+  let latest = 0;
+  for (const file of ["index.html", "app.js", "cpu.js", "styles.css"]) {
+    try {
+      const res = await fetch(file, { method: "HEAD", cache: "no-store" });
+      const t = new Date(res.headers.get("last-modified") || "").getTime();
+      if (Number.isFinite(t)) latest = Math.max(latest, t);
+    } catch (_) {}
+  }
+  if (!latest) return;
+  const d = new Date(latest);
+  const p2 = (n) => String(n).padStart(2, "0");
+  el.textContent = `版 ${d.getFullYear()}/${p2(d.getMonth() + 1)}/${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
+}
+showBuildVersion();

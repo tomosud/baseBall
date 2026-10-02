@@ -108,6 +108,12 @@ button {
   padding: 0 12px;
 }
 
+.main-version {
+  margin: 0;
+  font-size: 0.75rem;
+  color: rgba(242, 242, 242, 0.4);
+}
+
 .prototype-screen {
   position: relative;
   background: var(--bg-prototype);
@@ -1129,6 +1135,13 @@ button {
   font-size: 1.1rem;
   font-weight: 700;
   cursor: pointer;
+}
+
+/* タイトルへ: 試合のやり直しより控えめに */
+.reset-choice-title {
+  min-height: 44px;
+  font-size: 0.95rem;
+  background: transparent;
 }
 
 @media (max-width: 460px) {

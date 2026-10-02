@@ -26,6 +26,8 @@
           <button type="button" class="main-button main-solo-button" data-cpu-level="mid">ふつう</button>
           <button type="button" class="main-button main-solo-button" data-cpu-level="expert">つよい</button>
         </div>
+        <!-- 配信中のファイルの更新日時。キャッシュで古い版を見ていないかの確認用 -->
+        <p class="main-version" id="mainVersion"></p>
       </div>
     </main>
 
@@ -72,6 +74,7 @@
             <button type="button" class="reset-choice-btn" id="resetChoice3">3回</button>
             <button type="button" class="reset-choice-btn" id="resetChoice9">9回</button>
           </div>
+          <button type="button" class="reset-choice-btn reset-choice-title" id="resetChoiceTitle">タイトルへ</button>
         </div>
         <!-- エリア着色 -->
         <div class="playing-area-tint is-top-area" id="playingAreaTop"></div>
