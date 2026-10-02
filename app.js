@@ -2355,17 +2355,14 @@ elements.backButton?.addEventListener("click", showMainScreen);
 elements.battingBackButton?.addEventListener("click", showMainScreen);
 elements.overlayButton?.addEventListener("click", () => { showPlayingScreen(gameState.maxInnings || 9, gameState.solo); });
 
-// リセットボタン長押し（3秒）
+// リセットボタン長押し（3秒）: 試合をやめてタイトルに戻る。
+// 試合は破棄し、保存も消す（次に開いたときはタイトルから始まる）。モードはタイトルで選び直す。
 let cancelResetHold = () => {};
 (function () {
   let holdTimer = null;
   const btn = elements.playingResetBtn;
   const indicator = document.getElementById("holdIndicator");
   const indicatorBar = document.getElementById("holdIndicatorBar");
-  const choiceOverlay = document.getElementById("resetChoiceOverlay");
-  const btn3 = document.getElementById("resetChoice3");
-  const btn9 = document.getElementById("resetChoice9");
-  const btnTitle = document.getElementById("resetChoiceTitle");
 
   function showIndicator() {
     indicatorBar.classList.remove("is-filling");
@@ -2379,25 +2376,37 @@ let cancelResetHold = () => {};
     indicatorBar.classList.remove("is-filling");
   }
 
-  // 指を離したとき: タイマー中なら取り消すだけ。タイマー発火済みならオーバーレイはそのまま残す
+  // 指を離したとき: タイマー中なら取り消すだけ
   function releaseHold() {
-    if (holdTimer === null) return; // タイマー発火済み → 何もしない
+    if (holdTimer === null) return;
     clearTimeout(holdTimer);
     holdTimer = null;
     btn.classList.remove("is-holding");
     hideIndicator();
   }
 
-  // 外部（画面遷移など）から全リセットするとき
+  // 外部（画面遷移など）から取り消すとき
   function fullReset() {
     clearTimeout(holdTimer);
     holdTimer = null;
     btn.classList.remove("is-holding");
     hideIndicator();
-    choiceOverlay.classList.add("is-hidden");
   }
 
   cancelResetHold = fullReset;
+
+  function goTitle() {
+    fullReset();
+    clearSaveData();
+    stopRunnerLoop();
+    stopHomerunLoop();
+    hideOverlay();
+    hideBaseballTrivia();
+    gameState.phase = "pregame";
+    gameState.solo = null;
+    updatePlayingFlip();
+    showMainScreen();
+  }
 
   function startHold(e) {
     if (!playingState.isRunning) return;
@@ -2406,52 +2415,11 @@ let cancelResetHold = () => {};
     btn.classList.add("is-holding");
     showIndicator();
     holdTimer = setTimeout(() => {
-      holdTimer = null; // 発火済みのマーク
+      holdTimer = null;
       if (!playingState.isRunning) { fullReset(); return; }
-      hideIndicator();
-      btn.classList.remove("is-holding");
-      choiceOverlay.classList.remove("is-hidden");
+      goTitle();
     }, 3000);
   }
-
-  let choosing = false;
-  // solo: ひとりで遊ぶときの CPU の腕前。null はふたりで遊ぶ。
-  function chooseInnings(n, solo = null) {
-    return (e) => {
-      if (choosing) return;
-      choosing = true;
-      e.preventDefault();
-      e.stopPropagation();
-      fullReset();
-      showPlayingScreen(n, solo);
-      setTimeout(() => { choosing = false; }, 500);
-    };
-  }
-  // タイトルへ戻る（試合は破棄。保存も消すので、次に開いたときはタイトルから始まる）
-  function goTitle(e) {
-    if (choosing) return;
-    choosing = true;
-    e.preventDefault();
-    e.stopPropagation();
-    fullReset();
-    clearSaveData();
-    gameState.phase = "pregame";
-    gameState.solo = null;
-    updatePlayingFlip();
-    showMainScreen();
-    setTimeout(() => { choosing = false; }, 500);
-  }
-  btnTitle.addEventListener("pointerdown", goTitle);
-  btnTitle.addEventListener("click", goTitle);
-  choiceOverlay.querySelectorAll("[data-reset-cpu-level]").forEach((b) => {
-    const choose = chooseInnings(3, b.dataset.resetCpuLevel);
-    b.addEventListener("pointerdown", choose);
-    b.addEventListener("click", choose);
-  });
-  btn3.addEventListener("pointerdown", chooseInnings(3));
-  btn9.addEventListener("pointerdown", chooseInnings(9));
-  btn3.addEventListener("click", chooseInnings(3));
-  btn9.addEventListener("click", chooseInnings(9));
 
   btn.addEventListener("pointerdown", startHold);
   btn.addEventListener("pointerup", releaseHold);
