@@ -413,8 +413,8 @@ function isHumanTouchAllowed(event, point) {
   if (!gameState.solo || !event.isTrusted) return true;
   const humanAttacking = gameState.isTop;
   if (hasActiveRunners()) {
-    const ballOnField = playingState.isFielderThrow || (playingState.isHit && playingState.isResting);
-    const nearBall = ballOnField && Math.hypot(point.x - playingState.ballX, point.y - playingState.ballY) <= 36;
+    const nearBall = isPlayingBallPickable() &&
+      Math.hypot(point.x - playingState.ballX, point.y - playingState.ballY) <= physics.fielderPickupRadius;
     const tapZone = playingState.inPlay && !nearBall &&
       point.y >= getPlayingSurfaceRect().height * physics.runnerBoostAreaTopRatio;
     return humanAttacking ? tapZone : !tapZone;
@@ -716,6 +716,11 @@ const physics = {
   batLoadDragDistance: 170,
   // フィールダーがボールをピックアップ後に引っ張れる最大距離（これ以上は弾くしかできない）
   fielderPickupMaxDrag: 72,
+  // 守備が球を拾える距離（指と球の中心）。人の指は球の真上を正確に押せないので広めに取る
+  fielderPickupRadius: 56,
+  // 打球はこの速さ（px/s）まで落ちれば、転がっている途中でも拾える（止まるまで待たない）。
+  // 外野まで飛んだ深い打球は従来どおり、止まってから deepHitPickupDelay 待つ
+  fielderPickupRollSpeed: 200,
   // スイング角度のアナログばらつき（ラジアン）
   battingSwingAngleVariation: 0.05,
   // スイング後の接触猶予時間（秒）
@@ -2818,6 +2823,11 @@ function getPlayingMound(rect) {
 function updatePlayingMoundHold() {
   const holding = playingState.pitcherPointerId !== null && !playingState.isFielderThrow;
   elements.playingMound.classList.toggle("is-holding", holding);
+  // 拾った球を持っている間は、指より大きい輪で「持っている」を見せる（球は指の下に隠れるため）
+  elements.playingBall.classList.toggle(
+    "is-held",
+    playingState.pitcherPointerId !== null && playingState.isFielderThrow,
+  );
   // ボールを掴んだ＝もう次のプレーが始まるので、読み物は引っ込める
   if (holding) hideBaseballTrivia();
 }
@@ -4016,6 +4026,11 @@ function animatePlaying(timeStamp) {
         elements.playingBall.classList.add("is-resting");
       }
     }
+    // 転がっていても拾える速さまで落ちたら、止まった球と同じ赤で見せる
+    elements.playingBall.classList.toggle(
+      "is-pickable",
+      playingState.isHit && !playingState.isResting && isPlayingBallPickable(),
+    );
 
     const isOutside =
       playingState.ballY > rect.height + 80 ||
@@ -4164,6 +4179,7 @@ const yakyuHooks = {
     };
   },
   hasActiveRunners,
+  isBallPickable: () => isPlayingBallPickable(),
   showPlayingScreen,
   spawnRunnerOnHit,
   applyRunnerBoostTap,
@@ -4178,6 +4194,16 @@ function getPlayingSurfacePoint(event) {
   const x = event.clientX - rect.left;
   const y = event.clientY - rect.top;
   return isPlayingFlipped() ? { x: rect.width - x, y: rect.height - y } : { x, y };
+}
+
+// 守備が球を拾える状態か。送球のあとはいつでも。打球は止まった（赤い）とき、
+// または深い打球でなく、ゆっくり転がっているとき（fielderPickupRollSpeed 以下）。
+function isPlayingBallPickable() {
+  if (playingState.isFielderThrow) return true;
+  if (!playingState.isHit) return false;
+  if (playingState.isResting) return true;
+  return playingState.isBallActive && !playingState.isDeepHit &&
+    playingState.currentSpeed <= physics.fielderPickupRollSpeed;
 }
 
 function hasActiveRunners() {
@@ -4277,11 +4303,8 @@ function beginPlayingPointer(event) {
     //   深い打球・コーナー打球の遅延もこの isResting に含まれる。
     // - 一度投げたあとの球（フィールダースロー）は、飛行中でも転がっている
     //   最中でもいつでも拾い直せる。ドラッグ距離の制限は従来どおり掛かる。
-    const ballOnField =
-      playingState.isFielderThrow ||
-      (playingState.isHit && playingState.isResting);
-    const nearBall = ballOnField &&
-      Math.hypot(point.x - playingState.ballX, point.y - playingState.ballY) <= 36;
+    const nearBall = isPlayingBallPickable() &&
+      Math.hypot(point.x - playingState.ballX, point.y - playingState.ballY) <= physics.fielderPickupRadius;
 
     // 走者ブーストの連打は、フィールダーがボールを掴んで送球を構えている最中でも
     // 必ず受け付ける（マルチタッチ前提）。以前は pitcherPointerId の早期 return に
@@ -4311,8 +4334,12 @@ function beginPlayingPointer(event) {
       playingState.pickupY = point.y;
       playingState.isDeepHit = false;
       playingState.restDelayElapsed = 0;
-      elements.playingBall.classList.remove("is-resting", "is-deep-delay");
-      hidePlayingBall();
+      elements.playingBall.classList.remove("is-resting", "is-deep-delay", "is-pickable", "is-blue-hit");
+      elements.playingBallTail.classList.add("is-hidden");
+      updateContactableBall(elements.playingBall, false);
+      // 球が指へ吸い付く（下で指の位置へ動かすのを短いトランジションで見せる）
+      elements.playingBall.classList.add("is-snapping");
+      setTimeout(() => elements.playingBall.classList.remove("is-snapping"), 120);
     }
 
     // インプレー中はピックアップ以外で投球を開始できない（区切り）。

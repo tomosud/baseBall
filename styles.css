@@ -416,9 +416,36 @@ button {
   box-shadow: 0 0 12px rgba(255, 159, 10, 0.72);
 }
 
-.batting-ball.is-resting {
+.batting-ball.is-resting,
+.batting-ball.is-pickable {
   background: #ff3b30;
   box-shadow: 0 0 10px rgba(255, 59, 48, 0.5);
+}
+
+/* 拾った瞬間、球が指へ吸い付く */
+.batting-ball.is-snapping {
+  transition: transform 90ms ease-out;
+}
+
+/* 拾った球を持っている間の輪。指（直径 40px 前後）より大きくして隠れないようにする */
+.batting-ball.is-held::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 70px;
+  height: 70px;
+  margin: -35px 0 0 -35px;
+  border: 3px solid rgba(255, 214, 10, 0.9);
+  border-radius: 50%;
+  box-shadow: 0 0 12px rgba(255, 159, 10, 0.6);
+  pointer-events: none;
+  animation: held-ring-in 120ms ease-out;
+}
+
+@keyframes held-ring-in {
+  from { transform: scale(1.6); opacity: 0; }
+  to   { transform: scale(1); opacity: 1; }
 }
 
 .batting-ball.is-blue-hit {

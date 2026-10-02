@@ -233,7 +233,8 @@
     constructor(skill) { this.k = skill; this.gesture = null; this.pickAt = null; this.threwThisPlay = false; }
     reset() { this.gesture = null; this.pickAt = null; this.threwThisPlay = false; }
     pickable() {
-      const onField = S.isFielderThrow || (S.isHit && S.isResting);
+      // 拾える条件はゲーム側と同じ（転がっている遅い打球も拾える）
+      const onField = T.isBallPickable ? T.isBallPickable() : (S.isFielderThrow || (S.isHit && S.isResting));
       if (!onField || S.pitcherPointerId !== null || S.isHomeRun || runningRunners().length === 0) return false;
       // 投げた球がまだ生きて飛んでいる間は拾い直さない（人は結果を見てから拾いに行く）。
       // 壁に当たる・止まる・速度が落ちる、のどれかで「外した」と分かる。
