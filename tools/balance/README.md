@@ -22,6 +22,7 @@ Chromium の場所を指定したいときは `YAKYU_CHROMIUM=/path/to/chrome`�
 | `node micro.js` | README の既存計測（走者の速度曲線・避け性能）を再現する健全性テスト |
 | `node smoke.js expert expert 3 1` | 1試合だけ回してイベント内訳を出す（青・赤の腕前、回数、シード） |
 | `node calibrate.js` | 打者ボットの定数（振り始めリード・芯のオフセット）を決める |
+| `node record.js --blue mid --red mid --seconds 60` | ボット同士の試合を mp4 にする（コマ撮り。指の位置を赤丸で表示）。中身を目で確かめる用 |
 | `node run-baseline.js --games 20 --innings 3 --parallel 4` | 腕前総当たりで試合を回し、`docs/balance/` にレポートを書く |
 
 `run-baseline.js` の主な引数: `--skills novice,mid,expert` `--batLead 0.08` `--batSweet 25` `--label baseline` `--out docs/balance`
