@@ -1633,3 +1633,27 @@ button {
 .playing-surface.is-flipped .playing-tag-label {
   transform: translate(-50%, -50%) rotate(180deg);
 }
+
+/* ファウルゾーン（塁の外側）。形は app.js（updatePlayingFoulAreaDOM）が clip-path で作る */
+.playing-foul-area {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: rgba(0, 0, 0, 0.32);
+  pointer-events: none;
+}
+
+/* 打ったあと（走者モード）は得点の大きな数字を隠す。得点が飛んでいく間だけ出す */
+.area-score {
+  transition: top 160ms ease, opacity 200ms ease;
+}
+
+.playing-surface.is-in-play .area-score:not(.is-scoring) {
+  opacity: 0;
+}
+
+/* 持っている球を速く動かした = 投げる動き（持ったままでは走者に当たらない） */
+.batting-ball.is-held.is-throwing::after {
+  border-style: dashed;
+  opacity: 0.6;
+}

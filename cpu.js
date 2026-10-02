@@ -15,7 +15,8 @@
   const surface = T.elements.playingSurface;
   const FRAME = 1000 / 60;
   // 拾った球を持って下がるときの1フレームの移動量（px）。人がさっと引く速さ
-  const REPO_STEP = 10;
+  // ゲーム側の「持ったまま動かせる速さ」（fielderCarryMaxSpeed）を超えると投げる動きになるので、それより遅く
+  const REPO_STEP = 4.5;
   const DT = FRAME / 1000;
 
   const now = () => performance.now();

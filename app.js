@@ -236,6 +236,8 @@ const elements = {
   playingTopWall: document.getElementById("playingTopWall"),
   playingMound: document.getElementById("playingMound"),
   playingHomeBase: document.getElementById("playingHomeBase"),
+  playingFoulLeft: document.getElementById("playingFoulLeft"),
+  playingFoulRight: document.getElementById("playingFoulRight"),
   playingBase0: document.getElementById("playingBase0"),
   playingBase1: document.getElementById("playingBase1"),
   playingBase2: document.getElementById("playingBase2"),
@@ -738,8 +740,12 @@ const physics = {
   // フィールダーがボールをピックアップ後に引っ張れる最大距離（これ以上は弾くしかできない）
   // （廃止）拾った球を引っ張れる距離の上限。今は制限なしで、代わりに fielderThrowMinTravel で防ぐ
   fielderPickupMaxDrag: 72,
-  // 送球は、離した位置からこれ以上（px）飛んでから走者に当たる
-  fielderThrowMinTravel: 60,
+  // 送球は、離した位置からこれ以上（px）飛んでから走者に当たる（持ったまま当てても有効になったので 0）
+  fielderThrowMinTravel: 0,
+  // 拾った球を持ったまま走者に当ててもアウト。ただしこれより速く（px/s）動かすと「投げる動き」になり、
+  // 持ったままでは当たらず、指の速さが落ちた瞬間（振り切ったところ）でそのまま投げられる。
+  // 投げミスを拾い直して取り返せるようにしつつ、持って追いかけるだけでは解決させないため（走者の最高速 167px/s）
+  fielderCarryMaxSpeed: 320,
   // 守備が球を拾える距離（指と球の中心）。人の指は球の真上を正確に押せないので広めに取る
   fielderPickupRadius: 56,
   // 打球はこの速さ（px/s）まで落ちれば、転がっている途中でも拾える（止まるまで待たない）。
@@ -2923,6 +2929,20 @@ function updatePlayingBasesDOM() {
   bases.forEach((base, i) => {
     baseEls[i].style.transform = `translate(${base.x}px, ${base.y}px) rotate(45deg)`;
   });
+  updatePlayingFoulAreaDOM(rect, bases);
+}
+
+// ファウルゾーン（本塁〜1塁・3塁の線の外側で、塁の高さより下）を少し暗くする。
+// 判定の扇は当たった位置から広がるので厳密には少しずれるが、目安として本塁から引く。
+function updatePlayingFoulAreaDOM(rect, bases) {
+  const home = getPlayingHomePlate(rect);
+  const w = rect.width, h = rect.height;
+  const by = bases[0].y;
+  const r = bases[0].x, l = bases[2].x;
+  const pct = (x, y) => `${(x / w) * 100}% ${(y / h) * 100}%`;
+  // 左: 3塁の線の外側と本塁の後ろ左半分、右: 1塁の線の外側と本塁の後ろ右半分
+  elements.playingFoulLeft.style.clipPath = `polygon(${pct(0, by)}, ${pct(l, by)}, ${pct(home.x, home.y)}, ${pct(home.x, h)}, ${pct(0, h)})`;
+  elements.playingFoulRight.style.clipPath = `polygon(${pct(r, by)}, ${pct(w, by)}, ${pct(w, h)}, ${pct(home.x, h)}, ${pct(home.x, home.y)})`;
 }
 
 function spawnRunnerOnHit() {
@@ -3286,6 +3306,74 @@ function spawnRunnerTagBurst(x, y) {
   burst.style.top = `${y}px`;
   elements.playingSurface.appendChild(burst);
   setTimeout(() => burst.remove(), 620);
+}
+
+// 拾った球を持っている（守備）か
+function isCarryingPickedBall() {
+  return playingState.pitcherPointerId !== null && playingState.isFielderThrow && !playingState.isBallActive;
+}
+
+// 指の最近の速さ（px/s、直近 60ms）
+function getRecentPitcherFingerSpeed() {
+  const trail = playingState.pitcherTrail;
+  if (trail.length < 2) return 0;
+  const last = trail[trail.length - 1];
+  let base = trail[0];
+  for (let i = trail.length - 2; i >= 0; i--) {
+    if (last.timeStamp - trail[i].timeStamp >= 60) { base = trail[i]; break; }
+  }
+  const dt = Math.max(last.timeStamp - base.timeStamp, 16) / 1000;
+  return Math.hypot(last.x - base.x, last.y - base.y) / dt;
+}
+
+// 持っている球の移動ごとに: ゆっくりなら走者に当てられる、速すぎれば投げる動き（振り切ったら投げる）
+function updatePlayingCarry(prevX, prevY) {
+  const speed = getRecentPitcherFingerSpeed();
+  if (speed > physics.fielderCarryMaxSpeed && speed >= (playingState.carryPeakSpeed || 0)) {
+    // 投げる動き。持ったままでは当たらない。いちばん速いところの向きと速さを覚えておく
+    playingState.carryBroken = true;
+    playingState.carryPeakSpeed = speed;
+    playingState.carryPeakVector = getPlayingPitcherReleaseVector();
+    elements.playingBall.classList.add("is-throwing");
+  } else if ((playingState.carryPeakSpeed || 0) > 0 && speed < playingState.carryPeakSpeed * 0.6) {
+    // 振り切った（速さが大きく落ちた）→ 指を離さなくても、いちばん速かったところの勢いで投げる
+    releaseCarriedBallAsThrow(playingState.carryPeakVector);
+    return;
+  }
+  if (!playingState.carryBroken) checkCarriedBallTagsRunners(prevX, prevY);
+}
+
+function releaseCarriedBallAsThrow(vector = getPlayingPitcherReleaseVector()) {
+  playingState.carryPeakSpeed = 0;
+  playingState.carryPeakVector = null;
+  playingState.pitcherPointerId = null;
+  updatePlayingMoundHold();
+  elements.playingBall.classList.remove("is-throwing");
+  launchPlayingBall(vector && vector.speed >= 120 ? vector : createPlayingSoftReleaseVector(vector));
+  playingState.pitcherTrail = [];
+}
+
+// 持ったままの球が走っている走者に触れたらアウト（毎フレームと指の移動ごとに見る）
+function checkCarriedBallTagsRunners(prevX = playingState.ballX, prevY = playingState.ballY) {
+  if (!isCarryingPickedBall() || playingState.carryBroken) return;
+  for (const runner of playingState.runners) {
+    if (runner.state !== "running" || runner.fromWalk) continue;
+    const dist = distancePointToSegment(runner.x, runner.y, prevX, prevY, playingState.ballX, playingState.ballY);
+    if (dist > PLAYING_RUNNER_HIT_RADIUS) continue;
+    playSfx("out");
+    applyRunnerTagOut(runner);
+    // 持ったまま当てるのは1回まで（続けて刺すには投げる）。走者がいなくなったら持っている指も解放する
+    playingState.carryBroken = true;
+    if (!hasActiveRunners()) {
+      playingState.pitcherPointerId = null;
+      updatePlayingMoundHold();
+    } else {
+      playingState.isResting = false;
+      elements.playingBall.classList.remove("is-resting");
+      showPlayingBall();
+    }
+    return;
+  }
 }
 
 // 生きた送球が走っている走者に当たったらアウト。
@@ -3837,6 +3925,10 @@ function flyScorePointToTeam(fromX, fromY, teamIdx, label) {
   const targetEl = teamIdx === 0 ? elements.statusTeamBlue : elements.statusTeamRed;
   const scoreEl = teamIdx === 0 ? elements.statusScoreBlue : elements.statusScoreRed;
   const targetRect = getPlayingLocalRect(targetEl);
+  // 打ったあとは得点表示を隠しているので、得点が飛んでいく間だけ出す
+  targetEl.classList.add("is-scoring");
+  clearTimeout(targetEl.scoringTimer);
+  targetEl.scoringTimer = setTimeout(() => targetEl.classList.remove("is-scoring"), physics.scoreFlightMs + 900);
   const toX = targetRect.left + targetRect.width * 0.5;
   const toY = targetRect.top + targetRect.height * 0.5;
 
@@ -3965,6 +4057,7 @@ function updatePlayingTimingCues() {
 function animatePlaying(timeStamp) {
   if (!playingState.isRunning) return;
   updatePlayingTimingCues();
+  checkCarriedBallTagsRunners();
   invalidatePlayingGeom();   // このフレームぶんのジオメトリを取り直す
   if (!playingState.lastTick) playingState.lastTick = timeStamp;
   const dt = Math.min((timeStamp - playingState.lastTick) / 1000, 0.032);
@@ -4414,6 +4507,8 @@ function updatePlayingMode() {
       // 打った直後は指が乗ったままなので、デッドボールの輪をここで確実に消す
       elements.playingBatterFinger.classList.add("is-hidden");
       elements.playingMound.classList.add("is-hidden");
+      // 打ったあとは得点の大きな数字も隠して、盤面の情報を減らす（得点したときだけ一瞬出る）
+      elements.playingSurface.classList.add("is-in-play");
       elements.playingDivider.classList.add("is-hidden");
       elements.playingLabelPitcher.classList.add("is-hidden");
       elements.playingLabelBatter.classList.add("is-hidden");
@@ -4431,6 +4526,7 @@ function updatePlayingMode() {
       updateBatterFingerRing();
       updatePlayingMoundDOM();
       elements.playingMound.classList.remove("is-hidden");
+      elements.playingSurface.classList.remove("is-in-play");
       elements.playingDivider.classList.remove("is-hidden");
       elements.playingLabelPitcher.classList.remove("is-hidden");
       elements.playingLabelBatter.classList.remove("is-hidden");
@@ -4527,6 +4623,9 @@ function beginPlayingPointer(event) {
       elements.playingBall.classList.remove("is-resting", "is-deep-delay", "is-pickable", "is-blue-hit");
       elements.playingBallTail.classList.add("is-hidden");
       updateContactableBall(elements.playingBall, false);
+      playingState.carryBroken = false;
+      playingState.carryPeakSpeed = 0;
+      playingState.carryPeakVector = null;
       // 球が指へ吸い付く（下で指の位置へ動かすのを短いトランジションで見せる）
       elements.playingBall.classList.add("is-snapping");
       setTimeout(() => elements.playingBall.classList.remove("is-snapping"), 120);
@@ -4596,12 +4695,13 @@ function beginPlayingPointer(event) {
 function movePlayingPointer(event) {
   const point = getPlayingSurfacePoint(event);
   if (event.pointerId === playingState.pitcherPointerId) {
-    // ボールは指に付いてくる（拾った球も距離の制限なし）。
-    // 走者の近くまで運んで当てるのは、送球が離した位置から fielderThrowMinTravel 以上飛んで初めて当たる、で防ぐ。
+    // ボールは指に付いてくる（拾った球も距離の制限なし）
+    const prevX = playingState.ballX, prevY = playingState.ballY;
     if (!playingState.isBallActive) {
       setPlayingBallPosition(point.x, point.y);
     }
     pushPlayingPitcherTrail(point.x, point.y, eventTime(event));
+    if (isCarryingPickedBall()) updatePlayingCarry(prevX, prevY);
   } else if (event.pointerId === playingState.batterPointerId) {
     if (!playingState.isSwinging) {
       placePlayingBatOnSwingLine(point.x, point.y);
@@ -4622,7 +4722,13 @@ function endPlayingPointer(event) {
     pushPlayingPitcherTrail(point.x, point.y, eventTime(event));
     playingState.pitcherPointerId = null;
     updatePlayingMoundHold();
-    const vector = getPlayingPitcherReleaseVector();
+    elements.playingBall.classList.remove("is-throwing");
+    let vector = getPlayingPitcherReleaseVector();
+    // 拾った球を振って投げたとき、離す直前に減速していたら、いちばん速かったところの勢いを使う
+    const peak = playingState.carryPeakVector;
+    if (playingState.isFielderThrow && peak && (!vector || peak.speed > vector.speed)) vector = peak;
+    playingState.carryPeakSpeed = 0;
+    playingState.carryPeakVector = null;
     if (!vector || vector.speed < 120) {
       // 弱投 → 方向保持ソフトリリース
       const fallback = createPlayingSoftReleaseVector(vector);
