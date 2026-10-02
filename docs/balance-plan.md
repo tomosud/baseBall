@@ -327,3 +327,12 @@ export async function playGame({ innings, blue, red, seed, params }) {
 ## 付録 B. README との関係
 
 採用した数値は README「現在の主要パラメータ」と「調整のやり方」に反映し、**計測コマンドを README に書く**（「変えたら測ってください」を誰でも実行できる形にする）。本書は `docs/` に置き、Phase ごとの結果は `docs/balance/` に日付付きで残す。
+
+---
+
+## 進捗
+
+- **Phase 0〜1 完了（2026-10-02）**: ハーネスは `tools/balance/`（使い方は同ディレクトリの README）。README の既存実測を再現済み。
+  ベースライン: `docs/balance/baseline-20261002-0057.md`、所見: `docs/balance/baseline-notes-20261002.md`。
+  主要な所見は「打球速度が上限に張り付き、打球が出ると守備が成立しない」「接触が容易で三振が出ない」「HR は横位置 ±8px のゲーム」。
+- **次**: ボットの腕前を実プレイで校正（Phase 6 を前倒し）するか、所見 §4 の引き手で感度分析（Phase 3）に進むかを決める。
