@@ -706,6 +706,20 @@ const physics = {
   batTimingFloor: 0.3,
   // ホームランに必要なタイミング係数（1 = 満点の範囲内のときだけ）
   homeRunTimingFactor: 1,
+  // タイミングのずれ batTimingAngleRef 秒ごとに打球の向きを batTimingAngleDeg 度振る（早い = 左、遅い = 右）
+  batTimingAngleRef: 0.05,
+  batTimingAngleDeg: 25,
+  // ---- ファウル ----
+  // 当たった位置から、本塁〜1塁・3塁の線と同じ角度で広がる扇の内側がフェア。打球が塁の高さに届く前に扇の外へ出たらファウル。
+  // ファウルはストライク（2ストライク後は増えない）。球は死に、走者とカウントは打つ前に戻る。
+  foulEnabled: true,
+  // 線の外側の余裕（px）。球の半径ぶん
+  foulLineMargin: 8,
+  // 描かれたバットの端（先端・根もと）から、球の中心がこれ以上（px）外側で当たったらその場でファウル（かすり）。
+  // 当たり判定の半径（batContactRadius）はバットの外まで届くので、外で当たったものを「かすった」とみなす
+  foulTipOvershoot: 12,
+  // フェアゾーンの幅。本塁から「塁の高さで、本塁〜1塁の横幅 × これ」の点へ引いた線の内側がフェア（1 = 1塁・3塁を通る線）
+  foulLineWidthRatio: 1,
   batMoveScale: 1,
   batMoveYScale: 1,
   batVerticalRangeRatio: 2,
@@ -1377,6 +1391,12 @@ function reflectBallFromBatModel(model, options) {
   const swingDirection = normalizeVector(model.swingVelocityX, model.swingVelocityY, 0, -1);
   const hitRatio = getBatModelHitRatio(model, model.ballX, model.ballY);
   model.lastHitRatio = hitRatio;
+  // バットの端からどれだけ外側で当たったか（px、バットの上なら 0）
+  {
+    const bx = Math.cos(model.batAngle), by = Math.sin(model.batAngle);
+    const along = (model.ballX - model.batX) * bx + (model.ballY - model.batY) * by;
+    model.lastHitOvershoot = Math.max(0, -along, along - physics.batLength);
+  }
   const radius = physics.batLength * hitRatio;
   const angularDirection = model.swingEndAngle >= model.swingStartAngle ? 1 : -1;
   const signedAngularSpeed = model.swingAngularSpeed * angularDirection;
@@ -1445,7 +1465,20 @@ function reflectBallFromBatModel(model, options) {
     980
   );
 
-  const launchDirection = normalizeVector(launchVx, launchVy, 0, -1);
+  let launchDirection = normalizeVector(launchVx, launchVy, 0, -1);
+  // タイミング方式: 打球の向きをタイミングのずれで振る（早い = 左へ引っ張る、遅い = 右へ流す）。
+  // バットが真横を過ぎてから当たると球は左上へ、真横の手前で当たると右上へ返るのと同じ向き。
+  // ずれが大きいとフェアゾーンの外（ファウル）へ出る。
+  if (physics.batPowerModel === "timing") {
+    const deg = clamp(timingError / physics.batTimingAngleRef, -2.4, 2.4) * physics.batTimingAngleDeg;
+    const th = (deg * Math.PI) / 180;
+    const c = Math.cos(th), sn = Math.sin(th);
+    launchDirection = {
+      x: launchDirection.x * c - launchDirection.y * sn,
+      y: launchDirection.x * sn + launchDirection.y * c,
+    };
+    model.lastLaunchAngleDeg = deg;
+  }
 
   model.velocityX = launchDirection.x * launchSpeed;
   model.velocityY = launchDirection.y * launchSpeed;
@@ -3273,6 +3306,12 @@ function checkPlayingBallHitsRunners(prevX, prevY) {
 
 function reflectPlayingBallFromBat() {
   playSoundKakin();
+  // ファウルなら打つ前の状態へ戻すので、走者とカウントを控えておく
+  playingState.preHit = {
+    runners: playingState.runners.map((r) => ({ ...r, route: [...(r.route || [])] })),
+    balls: gameState.balls,
+    strikes: gameState.strikes,
+  };
   reflectBallFromBatModel(playingState, {
     batElement: elements.playingBat,
     hitAngleElement: elements.playingBatHitAngle,
@@ -3289,6 +3328,76 @@ function reflectPlayingBallFromBat() {
   playingState.swingMissed = false; // ヒットしたので空振り記録をクリア
   spawnRunnerOnHit();
   resetAtBat();
+  playingState.foulCheck = physics.foulEnabled;
+  // フェアゾーンは「当たった位置」から広がる扇形で見る（バットは左右に動かせるので本塁の真上とは限らない）
+  playingState.hitOriginX = playingState.ballX;
+  playingState.hitOriginY = playingState.ballY;
+  // バットの端の外でかすった当たりは、その場でファウル
+  if (physics.foulEnabled && (playingState.lastHitOvershoot ?? 0) > physics.foulTipOvershoot) {
+    callPlayingFoul("tip");
+  }
+}
+
+// 打球がファウルゾーンへ出たか。塁の高さを越えるか、内野で止まる・拾われるまで毎フレーム見る。
+function checkPlayingFoul() {
+  if (!playingState.foulCheck) return;
+  if (!playingState.isHit || playingState.isResting || playingState.isHomeRun) {
+    playingState.foulCheck = false; // 止まった・拾われた・ホームラン → フェアで確定
+    return;
+  }
+  const rect = getPlayingSurfaceRect();
+  const bases = getPlayingBasePositions(rect);
+  const home = getPlayingHomePlate(rect);
+  const baseY = bases[0].y;
+  if (playingState.ballY <= baseY) {
+    playingState.foulCheck = false; // 塁の高さを越えた → フェアで確定
+    return;
+  }
+  // 扇の開き = 本塁から1塁（× foulLineWidthRatio）へ引いた線の角度
+  const tanHalf = (Math.abs(bases[0].x - home.x) * physics.foulLineWidthRatio) / Math.max(1, home.y - baseY);
+  const dx = playingState.ballX - playingState.hitOriginX;
+  const up = playingState.hitOriginY - playingState.ballY; // 上（投手側）へ進んだ距離
+  if (up < -physics.foulLineMargin) {
+    callPlayingFoul("behind"); // 後ろへ飛んだ
+    return;
+  }
+  if (Math.abs(dx) > Math.max(0, up) * tanHalf + physics.foulLineMargin) {
+    callPlayingFoul(dx < 0 ? "left" : "right");
+  }
+}
+
+function callPlayingFoul(reason) {
+  playingState.foulCheck = false;
+  testLog("foul", {
+    reason,
+    hitRatio: playingState.lastHitRatio ?? null,
+    timingError: playingState.lastTimingError ?? null,
+    launchAngle: playingState.lastLaunchAngleDeg ?? null,
+    x: playingState.ballX, y: playingState.ballY,
+    vx: playingState.velocityX, vy: playingState.velocityY,
+    curve: playingState.curveAccelerationX,
+  });
+  const pre = playingState.preHit;
+  if (pre) {
+    playingState.runners = pre.runners;
+    gameState.balls = pre.balls;
+    gameState.strikes = Math.min(2, pre.strikes + 1); // 2ストライク後のファウルはカウントしない
+  }
+  playingState.preHit = null;
+  playingState.isHit = false;
+  playingState.isHomeRun = false;
+  playingState.runnerBoost = 0;
+  renderPlayingRunners();
+  updateStatusBar();
+  finishPlayingPitch("ファウル");
+  updatePlayingCall("ファウル", "is-ball");
+  playSoundBall();
+  // 走者モードの表示を戻す。打った同じフレームでのファウルは表示がまだ切り替わっていないので、
+  // インプレーの解除とクールダウンはここでも入れておく。
+  updatePlayingMode();
+  playingState.inPlay = false;
+  playingState.nextPitchReadyAt = performance.now() + physics.playEndPitchCooldownMs;
+  saveGameToDB();
 }
 
 // 当たった位置をバットの上で一瞬光らせる（芯なら金、外れなら白）。
@@ -3933,7 +4042,7 @@ function animatePlaying(timeStamp) {
       updateContactableBall(elements.playingBall, false);
       applyPlayingEdgeBounce(rect);
       setPlayingBallPosition(playingState.ballX, playingState.ballY);
-
+      checkPlayingFoul();
     }
 
     // 速度二百以上のヒット球は青く表示

@@ -12,7 +12,7 @@ export function gameMetrics(result) {
     winner: result.score[0] > result.score[1] ? "blue" : result.score[1] > result.score[0] ? "red" : "tie",
     pitches: 0, pitchMiss: 0, deadballs: 0, deadballRuns: 0,
     strikesCalled: 0, strikesSwing: 0, balls: 0,
-    pa: 0, strikeouts: 0, walks: 0, inplay: 0,
+    pa: 0, strikeouts: 0, walks: 0, inplay: 0, fouls: 0,
     hits: [],            // { quality, speed, outs, runs, throws, homerun }
     throws: 0, tagouts: 0, homeruns: 0,
     runsTop: 0, runsBottom: 0,
@@ -39,6 +39,11 @@ export function gameMetrics(result) {
         closePlay();
         m.pa++; m.inplay++;
         play = { quality: e.quality, speed: e.speed, impulse: e.impulse, outs: 0, runs: 0, throws: 0, homerun: false };
+        break;
+      case "foul":
+        // 打った（hit）あとにファウルと分かったもの。打席・インプレーから外す
+        m.fouls++;
+        if (play) { play = null; m.pa--; m.inplay--; }
         break;
       case "throw": m.throws++; if (play) play.throws++; break;
       case "tagout": m.tagouts++; break;
