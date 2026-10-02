@@ -619,6 +619,10 @@ const physics = {
   homeRunHitQuality: 0.8,
   ballRadius: 7,
   batHitPowerScale: 0.55,
+  // スイングの勢い（impulse）の頭打ち。impulse_eff = ref × tanh(impulse / ref)。
+  // 速く振るほど強いのは保ったまま、速く振るだけでは打球速度の上限に張り付かないようにする。
+  // 0 で無効（impulse をそのまま使う）。
+  batImpulseRef: 0,
   batMoveScale: 1,
   batMoveYScale: 1,
   batVerticalRangeRatio: 2,
@@ -1260,8 +1264,11 @@ function reflectBallFromBatModel(model, options) {
   const contactVelocityX = model.swingMoveVelocityX + tangentVelocityX;
   const contactVelocityY = model.swingMoveVelocityY + tangentVelocityY;
   const localBatSpeed = Math.hypot(contactVelocityX, contactVelocityY);
-  const impulse = localBatSpeed * physics.batHitPowerScale;
+  const rawImpulse = localBatSpeed * physics.batHitPowerScale;
+  const impulseRef = physics.batImpulseRef;
+  const impulse = impulseRef > 0 ? impulseRef * Math.tanh(rawImpulse / impulseRef) : rawImpulse;
   model.swingPower = impulse;
+  model.lastRawImpulse = rawImpulse;
   const contactDirection = normalizeVector(contactVelocityX, contactVelocityY, swingDirection.x, swingDirection.y);
 
   // A: バット面上の当たり位置 → 仰角に影響（上端 = フライ、下端 = ゴロ）
@@ -2802,6 +2809,8 @@ function spawnRunnerOnHit() {
   playingState.runnerBoost = 0;
   testLog("hit", {
     quality: playingState.lastHitQuality ?? 0,
+    impulse: playingState.lastRawImpulse ?? 0,
+    impulseEff: playingState.swingPower,
     speed: playingState.currentSpeed,
     vx: playingState.velocityX,
     vy: playingState.velocityY,
