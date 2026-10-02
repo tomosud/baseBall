@@ -18,6 +18,7 @@ export async function playGame(browser, serverUrl, {
   seed = 1,
   physics = {},
   batLead,
+  batSweetOffset,
   chunkMs = 2000,
   onProgress,
 } = {}) {
@@ -26,7 +27,7 @@ export async function playGame(browser, serverUrl, {
     await applyPhysics(page, physics);
     await startGame(page, innings);
     await page.addScriptTag({ content: BOTS_SRC });
-    await page.evaluate((cfg) => window.__yakyuBots.start(cfg), { teams, batLead });
+    await page.evaluate((cfg) => window.__yakyuBots.start(cfg), { teams, batLead, batSweetOffset });
 
     const limit = MAX_VIRTUAL_SECONDS[innings] * 1000;
     let elapsed = 0;

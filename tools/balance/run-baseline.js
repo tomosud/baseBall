@@ -26,7 +26,8 @@ const PARALLEL = Number(arg("parallel", 4));
 const SKILLS = arg("skills", "novice,mid,expert").split(",");
 const OUT = path.resolve(ROOT, arg("out", "docs/balance"));
 const BAT_LEAD = Number(arg("batLead", 0.16));
-const BAT_SWEET = Number(arg("batSweet", 30));
+// 既定 35 はボット側の既定と同じ。2026-10-02 以前は引数がボットに届かず常に 35 で回っていたので、比較のため揃える。
+const BAT_SWEET = Number(arg("batSweet", 35));
 const LABEL = arg("label", "baseline");
 // physics の上書き（JSON）。例: --physics '{"batHitPowerScale":0.4}'
 const PHYSICS = JSON.parse(arg("physics", "{}"));
