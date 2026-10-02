@@ -14,6 +14,8 @@
   const G = T.gameState;
   const surface = T.elements.playingSurface;
   const FRAME = 1000 / 60;
+  // 拾った球を持って下がるときの1フレームの移動量（px）。人がさっと引く速さ
+  const REPO_STEP = 10;
   const DT = FRAME / 1000;
 
   const now = () => performance.now();
@@ -279,18 +281,29 @@
         if (k.leadModel === "current") v = 0; // 初級: 今いる場所を狙う
         v *= 1 + gauss() * k.leadSigma;
         const s0 = r.progress * dist + v * (leadFrames * DT);
+        // 送球は離した位置から fielderThrowMinTravel 以上飛ばないと当たらない。
+        // 当てる点が近すぎるときは、人と同じように球を持ったまま下がってから投げる。
+        const minTravel = (P.fielderThrowMinTravel || 0) + 20;
         for (let t = 0.15; t <= 3; t += DT) {
-          const s = s0 + v * t;
+          let release = pick, repoFrames = 0;
+          let s = s0 + v * t;
+          let px = r.fromX + ux * s, py = r.fromY + uy * s;
+          if (Math.hypot(px - pick.x, py - pick.y) < minTravel) {
+            // 走者から離れる向き（当てる点 → 拾った位置）へ下がる
+            let ax = pick.x - px, ay = pick.y - py;
+            const al = Math.hypot(ax, ay);
+            if (al < 1) { ax = -ux; ay = -uy; } else { ax /= al; ay /= al; }
+            release = { x: clamp(px + ax * (minTravel + 5), 20, geom.width - 20), y: clamp(py + ay * (minTravel + 5), geom.topWallY + 20, geom.height - 20) };
+            repoFrames = Math.ceil(Math.hypot(release.x - pick.x, release.y - pick.y) / REPO_STEP);
+            s = s0 + v * (t + repoFrames * DT);
+            px = r.fromX + ux * s; py = r.fromY + uy * s;
+          }
           if (s >= dist) break; // 着いてセーフになる
-          const px = r.fromX + ux * s, py = r.fromY + uy * s;
-          // リリース点は拾った位置から送球方向へ最大ドラッグぶん進んだところ
-          const ddx = px - pick.x, ddy = py - pick.y;
-          const dd = Math.hypot(ddx, ddy) || 1;
-          const dragLen = Math.min(P.fielderPickupMaxDrag, 0); // 送球方向に引くとボールが前へ出るぶん（下で加味）
-          const d = dd - dragLen;
+          const d = Math.hypot(px - release.x, py - release.y) || 1;
+          if (d < minTravel - 15) continue;
           const v0 = (d * drag) / (1 - Math.exp(-drag * t));
           if (v0 <= v0max) {
-            if (!best || t < best.t) best = { t, px, py, v0, runner: r };
+            if (!best || t < best.t) best = { t, px, py, v0, runner: r, release, repoFrames };
             break;
           }
         }
@@ -302,7 +315,18 @@
       const ratio = clamp(best.v0 / factor / P.maxForwardSpeed, 0.05, 0.995);
       const swipe = P.maxForwardSpeed * Math.atanh(ratio);
       this.threwThisPlay = true;
-      this.gesture = buildSwipe(pick, aim, Math.max(swipe, 300), dragFrames, 0, PID.pitcher);
+      const throwGesture = buildSwipe(best.release, aim, Math.max(swipe, 300), dragFrames, 0, PID.pitcher);
+      if (best.repoFrames > 0) {
+        // 拾う → 持ったまま下がる → 投げる
+        const steps = [{ type: "pointerdown", x: pick.x, y: pick.y }];
+        for (let i = 1; i <= best.repoFrames; i++) {
+          const f = i / best.repoFrames;
+          steps.push({ type: "pointermove", x: pick.x + (best.release.x - pick.x) * f, y: pick.y + (best.release.y - pick.y) * f });
+        }
+        const [, ...rest] = throwGesture.steps; // 先頭の pointerdown は不要（もう押している）
+        throwGesture.steps = [...steps, ...rest];
+      }
+      this.gesture = throwGesture;
     }
   }
 
