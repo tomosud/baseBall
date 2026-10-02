@@ -360,6 +360,7 @@ function updateStatusBar() {
 
 function gameProcessStrike() {
   if (gameState.phase !== "playing") return;
+  testLog("strike", { swing: playingState.swingMissed });
   gameState.strikes++;
   updateStatusBar();
   if (gameState.strikes >= 3) {
@@ -375,12 +376,14 @@ function gameProcessStrike() {
 
 function gameProcessBall() {
   if (gameState.phase !== "playing") return;
+  testLog("ball", {});
   gameState.balls++;
   updateStatusBar();
   if (gameState.balls >= 4) {
     const token = gameState.playToken;
     setTimeout(() => {
       if (token !== gameState.playToken || gameState.phase !== "playing") return;
+      testLog("walk", {});
       updatePlayingCall("フォアボール", "is-ball");
       advanceRunnersOnWalk();
       resetAtBat();
@@ -394,6 +397,7 @@ function gameProcessBall() {
 
 function gameProcessOut(reason) {
   if (gameState.phase !== "playing") return;
+  testLog("out", { reason: reason || "OUT!" });
   gameState.outs = Math.min(3, gameState.outs + 1);
   updateStatusBar();
   playSfx("out");
@@ -429,6 +433,7 @@ function gameProcessScore() {
   if (gameState.phase !== "playing") return;
   const battingTeam = gameState.isTop ? 0 : 1;
   addRunForBattingTeam();
+  testLog("score", { team: battingTeam, homeRun: playingState.isHomeRun });
   saveGameToDB();
   playSfx("score");
   // 得点はホームベースから、そのチームのスコア表示へ飛んでいく
@@ -442,6 +447,7 @@ function gameProcessScore() {
 
 function gameDoChange() {
   if (gameState.phase !== "playing" && gameState.phase !== "change") return;
+  testLog("change", {});
   gameState.phase = "change";
   updateBatterFingerRing();
 
@@ -487,6 +493,7 @@ function gameDoChange() {
 }
 
 function gameDoGameSet() {
+  testLog("gameset", {});
   gameState.phase = "gameset";
   hideBaseballTrivia();
   updateBatterFingerRing();
@@ -2793,6 +2800,15 @@ function spawnRunnerOnHit() {
 
   playingState.inPlay = true;
   playingState.runnerBoost = 0;
+  testLog("hit", {
+    quality: playingState.lastHitQuality ?? 0,
+    speed: playingState.currentSpeed,
+    vx: playingState.velocityX,
+    vy: playingState.velocityY,
+    x: playingState.ballX,
+    y: playingState.ballY,
+    runners: playingState.runners.length,
+  });
   elements.playingRunLabel.textContent = "RUN！RUN！RUN！";
   renderPlayingRunners();
   saveGameToDB();
@@ -3024,6 +3040,13 @@ function distancePointToSegment(px, py, ax, ay, bx, by) {
 
 // アウト処理の共通ロジック（走者に送球が当たったときだけ呼ばれる）
 function applyRunnerTagOut(outRunner) {
+  testLog("tagout", {
+    x: outRunner.x,
+    y: outRunner.y,
+    toBaseIndex: outRunner.toBaseIndex,
+    progress: outRunner.progress,
+    boost: playingState.runnerBoost,
+  });
   outRunner.state = "out";
   spawnRunnerTagBurst(outRunner.x, outRunner.y);
   renderPlayingRunners();
@@ -3223,6 +3246,7 @@ function applyPlayingEdgeBounce(rect) {
 function triggerHomeRun() {
   if (playingState.isHomeRun) return;
   playingState.isHomeRun = true;
+  testLog("homerun", { runners: playingState.runners.filter((r) => r.state === "running").length });
 
   // 走者全員に残りの塁を順番に回らせてホームインさせる
   const rect = getPlayingSurfaceRect();
@@ -3336,6 +3360,14 @@ function launchPlayingBall(vector) {
   const launch = launchPitchModel(playingState, vector, getPlayingStrikeZoneRect(), launchOptions);
   // 拾って投げた送球だけが「生きた送球」。壁に触れるまでの間だけアウトを取れる。
   playingState.throwIsLive = playingState.isFielderThrow;
+  testLog(playingState.isFielderThrow ? "throw" : "pitch", {
+    x: playingState.ballX,
+    y: playingState.ballY,
+    vx: playingState.velocityX,
+    vy: playingState.velocityY,
+    rawSpeed: launch.scaledSpeed,
+    curve: playingState.releaseCurve,
+  });
   playingState.pitchRawSpeed = clamp(launch.scaledSpeed, physics.battingMinRawSpeed, physics.battingMaxRawSpeed);
   playingState.isBallActive = true;
   playingState.isHit = false;
@@ -3442,6 +3474,7 @@ function flyScorePointToTeam(fromX, fromY, teamIdx, label) {
 
 // 投球がバッターの指に当たった: ピッチャー側に1点
 function triggerDeadBall(hitX, hitY) {
+  testLog("deadball", { x: hitX, y: hitY, swinging: playingState.isSwinging });
   playingState.pitchJudged = true;
   playSfx("wallBounce");
   spawnDeadBallBurst(hitX, hitY);
@@ -3487,6 +3520,7 @@ const DEAD_BALL_TEXT = "デッドボール";
 
 function finishPitchAsMiss() {
   // カウントは動かさない。judged を立てて以降の判定を止めるだけ。
+  testLog("pitchmiss", {});
   playingState.pitchJudged = true;
   playSfx("ball");
   finishPlayingPitch(PITCH_MISS_TEXT);
@@ -3831,6 +3865,72 @@ function showPlayingScreen(maxInnings = 9) {
 
 // ---- Playing pointer handlers ----
 
+// ===== テスト用フック（?test=1 のときだけ有効） =====
+// バランス計測ハーネス（tools/balance）が本物の app.js を仮想時計で高速再生するための最小限の口。
+// 本番（クエリなし）では eventTime は event.timeStamp をそのまま返し、testLog は何もしない。
+const TEST_MODE = new URLSearchParams(window.location.search).has("test");
+
+// 入力の時刻。ハーネスは合成 PointerEvent を仮想時計の中で流すが、event.timeStamp は
+// 偽装できない実時間になるので、テスト中だけ performance.now()（仮想時計）を使う。
+function eventTime(event) {
+  return TEST_MODE ? performance.now() : event.timeStamp;
+}
+
+// 合成イベントには対応する実ポインタが無く setPointerCapture が例外を投げる。
+// 捕捉は補助なので失敗しても処理を止めない（本番でも捕捉失敗で状態が崩れない）。
+function capturePlayingPointer(pointerId) {
+  try {
+    elements.playingSurface.setPointerCapture(pointerId);
+  } catch (_) {}
+}
+
+const testEvents = [];
+
+function testLog(type, data) {
+  if (!TEST_MODE) return;
+  testEvents.push({
+    t: performance.now(),
+    type,
+    inning: gameState.inning,
+    isTop: gameState.isTop,
+    outs: gameState.outs,
+    balls: gameState.balls,
+    strikes: gameState.strikes,
+    score: [gameState.score[0], gameState.score[1]],
+    ...data,
+  });
+}
+
+if (TEST_MODE) {
+  window.__yakyuTest = {
+    physics,
+    playingState,
+    gameState,
+    elements,
+    events: testEvents,
+    runnerHitRadius: PLAYING_RUNNER_HIT_RADIUS,
+    geometry() {
+      invalidatePlayingGeom();
+      const rect = getPlayingSurfaceRect();
+      return {
+        width: rect.width,
+        height: rect.height,
+        topWallY: getPlayingTopWallY(),
+        bases: getPlayingBasePositions(rect),
+        home: getPlayingHomePlate(rect),
+        mound: getPlayingMound(rect),
+        zone: getPlayingStrikeZoneRect(),
+      };
+    },
+    hasActiveRunners,
+    showPlayingScreen,
+    spawnRunnerOnHit,
+    applyRunnerBoostTap,
+    launchPlayingBall,
+    finishPlayingPitch,
+  };
+}
+
 function getPlayingSurfacePoint(event) {
   const rect = getPlayingSurfaceRect();
   return { x: event.clientX - rect.left, y: event.clientY - rect.top };
@@ -4006,16 +4106,16 @@ function beginPlayingPointer(event) {
     // 見た目の切り替えは setPointerCapture より先に。捕捉が失敗しても
     // 「持っている」表示だけは状態と合うようにしておく。
     updatePlayingMoundHold();
-    elements.playingSurface.setPointerCapture(event.pointerId);
+    capturePlayingPointer(event.pointerId);
     playingState.pitcherTrail = [];
     setPlayingBallPosition(point.x, point.y);
     showPlayingBall();
-    pushPlayingPitcherTrail(point.x, point.y, event.timeStamp);
+    pushPlayingPitcherTrail(point.x, point.y, eventTime(event));
   } else {
     // バッター側
     if (playingState.batterPointerId !== null) return;
     playingState.batterPointerId = event.pointerId;
-    elements.playingSurface.setPointerCapture(event.pointerId);
+    capturePlayingPointer(event.pointerId);
     const batPos = getDefaultPlayingBatPosition();
     playingState.batterTrail = [];
     playingState.batBaseX = batPos.x;
@@ -4027,7 +4127,7 @@ function beginPlayingPointer(event) {
     elements.playingBatHitAngle.classList.add("is-hidden");
     elements.playingBatReflectAngle.classList.add("is-hidden");
     setPlayingBatPosition(batPos.x, batPos.y, physics.batRestAngle);
-    pushPlayingBatterTrail(point.x, point.y, event.timeStamp);
+    pushPlayingBatterTrail(point.x, point.y, eventTime(event));
   }
 }
 
@@ -4050,13 +4150,13 @@ function movePlayingPointer(event) {
         setPlayingBallPosition(point.x, point.y);
       }
     }
-    pushPlayingPitcherTrail(point.x, point.y, event.timeStamp);
+    pushPlayingPitcherTrail(point.x, point.y, eventTime(event));
   } else if (event.pointerId === playingState.batterPointerId) {
     if (!playingState.isSwinging) {
       placePlayingBatOnSwingLine(point.x, point.y);
     }
     setBatterFinger(point.x, point.y);
-    pushPlayingBatterTrail(point.x, point.y, event.timeStamp);
+    pushPlayingBatterTrail(point.x, point.y, eventTime(event));
     const vec = getPlayingBatterVector();
     playingState.swingGateSpeed = Math.max(0, -vec.velocityY);
     if (playingState.swingGateSpeed >= physics.battingSwingThreshold) {
@@ -4068,7 +4168,7 @@ function movePlayingPointer(event) {
 function endPlayingPointer(event) {
   const point = getPlayingSurfacePoint(event);
   if (event.pointerId === playingState.pitcherPointerId) {
-    pushPlayingPitcherTrail(point.x, point.y, event.timeStamp);
+    pushPlayingPitcherTrail(point.x, point.y, eventTime(event));
     playingState.pitcherPointerId = null;
     updatePlayingMoundHold();
     const vector = getPlayingPitcherReleaseVector();
@@ -4084,7 +4184,7 @@ function endPlayingPointer(event) {
     if (!playingState.isSwinging) {
       placePlayingBatOnSwingLine(point.x, point.y);
     }
-    pushPlayingBatterTrail(point.x, point.y, event.timeStamp);
+    pushPlayingBatterTrail(point.x, point.y, eventTime(event));
     playingState.batterPointerId = null;
     playingState.batterTrail = [];
     updateBatterFingerRing();

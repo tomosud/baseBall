@@ -1,0 +1,14 @@
+{
+  "name": "yakyu-balance",
+  "private": true,
+  "version": "0.1.0",
+  "description": "や球のバランス計測ハーネス（本物の app.js を Playwright の仮想時計で高速再生する）",
+  "type": "module",
+  "scripts": {
+    "micro": "node micro.js",
+    "baseline": "node run-baseline.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.63.0"
+  }
+}
