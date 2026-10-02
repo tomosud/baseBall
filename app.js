@@ -1376,6 +1376,7 @@ function reflectBallFromBatModel(model, options) {
 
   const swingDirection = normalizeVector(model.swingVelocityX, model.swingVelocityY, 0, -1);
   const hitRatio = getBatModelHitRatio(model, model.ballX, model.ballY);
+  model.lastHitRatio = hitRatio;
   const radius = physics.batLength * hitRatio;
   const angularDirection = model.swingEndAngle >= model.swingStartAngle ? 1 : -1;
   const signedAngularSpeed = model.swingAngularSpeed * angularDirection;
@@ -3284,9 +3285,25 @@ function reflectPlayingBallFromBat() {
     spawnSweetSpotPop(playingState.ballX, playingState.ballY);
   }
   showHitTimingPop();
+  showBatContactFlash();
   playingState.swingMissed = false; // ヒットしたので空振り記録をクリア
   spawnRunnerOnHit();
   resetAtBat();
+}
+
+// 当たった位置をバットの上で一瞬光らせる（芯なら金、外れなら白）。
+// バットには芯の帯（styles.css の .bat の背景）があるので、帯に対してどこだったかが分かる。
+function showBatContactFlash() {
+  const r = playingState.lastHitRatio ?? 0.6;
+  const len = physics.batLength * r;
+  const x = playingState.batX + Math.cos(playingState.batAngle) * len;
+  const y = playingState.batY + Math.sin(playingState.batAngle) * len;
+  const flash = document.createElement("div");
+  flash.className = `bat-contact-flash ${playingState.lastHitQuality >= 0.85 ? "is-sweet" : ""}`;
+  flash.style.left = `${x}px`;
+  flash.style.top = `${y}px`;
+  elements.playingSurface.appendChild(flash);
+  setTimeout(() => flash.remove(), 500);
 }
 
 function spawnSweetSpotPop(x, y) {
