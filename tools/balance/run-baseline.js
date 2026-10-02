@@ -6,6 +6,7 @@
 //   <out>/raw/baseline-<日時>.json   全試合のイベントログ（再集計用）
 //   <out>/baseline-<日時>.md         集計レポート
 import fs from "node:fs";
+import zlib from "node:zlib";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { startServer } from "./lib/server.js";
@@ -69,7 +70,8 @@ try {
 
 // ---- 保存 ----
 const rawPath = path.join(OUT, "raw", `${LABEL}-${stamp}.json`);
-fs.writeFileSync(rawPath, JSON.stringify({ innings: INNINGS, games: GAMES, skills: SKILLS, batLead: BAT_LEAD, batSweet: BAT_SWEET, results }, null, 0));
+// 生データは数MBになるので gzip で置く（zcat で戻せる）
+fs.writeFileSync(`${rawPath}.gz`, zlib.gzipSync(JSON.stringify({ innings: INNINGS, games: GAMES, skills: SKILLS, batLead: BAT_LEAD, batSweet: BAT_SWEET, results })));
 
 // ---- 集計 ----
 const byCell = {};
