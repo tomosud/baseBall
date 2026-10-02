@@ -395,8 +395,8 @@ function getPlayingLocalRect(element) {
 function startCpuIfSolo() {
   const bots = window.__yakyuBots;
   if (!bots) return;
-  // 打者の振り始めリードは run-baseline.js の既定（校正値）と同じ 0.16 秒
-  if (gameState.solo) bots.start({ teams: { blue: null, red: gameState.solo }, batLead: 0.16 });
+  // 打者の振り始めリードは run-baseline.js の既定（校正値）と同じ。タイミングのずれの中央値が 0 になる値
+  if (gameState.solo) bots.start({ teams: { blue: null, red: gameState.solo }, batLead: 0.10 });
   else if (bots.running) bots.stop();
 }
 
@@ -687,6 +687,21 @@ const physics = {
   // 780（上限 ≈ 980）で「芯で捉えた速いスイングだけ」がホームランになる。0 で無効。
   // 根拠: docs/balance/tune/tuneA2-notes-20261002.md
   batImpulseRef: 780,
+  // ---- 打球の強さの決まり方 ----
+  // "timing": 強さはタイミングの正確さと芯で決まる。スワイプの速さは「足りているか」だけ（普通に振れば満タン）。
+  // "swing":  旧方式。強さはスワイプの速さ（impulse）に比例。
+  // 当たる（接触の窓は広いまま）けど、上手く合わせないと飛ばない、にするため。docs/balance/tune/tuneT-notes-*.md
+  batPowerModel: "timing",
+  // タイミング方式の打球の勢いの上限（旧方式の impulse に相当。打球速度の上限 ≈ 120 + 1.1 × これ）
+  batHitPowerMax: 780,
+  // これ以上の impulse（圧縮前）で「振りが足りている」とみなす。下回ると比例して弱くなる
+  batFullSwingImpulse: 500,
+  // タイミングのずれ（秒）: この範囲は満点、そこから batTimingFalloff 秒かけて batTimingFloor まで下がる
+  batTimingPerfect: 0.015,
+  batTimingFalloff: 0.045,
+  batTimingFloor: 0.3,
+  // ホームランに必要なタイミング係数（1 = 満点の範囲内のときだけ）
+  homeRunTimingFactor: 1,
   batMoveScale: 1,
   batMoveYScale: 1,
   batVerticalRangeRatio: 2,
@@ -1304,7 +1319,37 @@ function getBatModelHitRatio(model, x, y) {
   return lengthSquared > 0 ? clamp(((x - ax) * dx + (y - ay) * dy) / lengthSquared, 0, 1) : 0;
 }
 
+// スイングのタイミングのずれ（秒）。正 = 振り遅れ、負 = 振り早い。
+// 「バットが真横（角度 0）になる瞬間」と「球がバットの高さ（batY）に届く瞬間」の差で測る。
+// 接触の判定（半径）とは別に測るので、当たったかどうかとは独立に「合っていたか」が分かる。
+function getSwingTimingError(model) {
+  const start = model.swingStartAngle;
+  const span = start - model.swingEndAngle;
+  // スイングの角度は ease-out（1 - (1-p)^2）で進むので、角度 0 になる進み具合 p を逆算する
+  const easeAtSquare = span > 0 ? clamp(start / span, 0, 1) : 0.5;
+  const tSquare = (1 - Math.sqrt(1 - easeAtSquare)) * physics.battingSwingDuration;
+  const now = model.isSwinging
+    ? model.swingElapsed
+    : physics.battingSwingDuration + (physics.battingSwingLingerDuration - (model.swingLingerTimer || 0));
+  const batToSquare = tSquare - now;
+  const ballToLine = model.velocityY > 1 ? (model.batY - model.ballY) / model.velocityY : 0;
+  return batToSquare - ballToLine;
+}
+
+// タイミングのずれ → 0〜1 の係数（満点の範囲は 1、外れるほど下がって batTimingFloor で止まる）
+function getTimingFactor(timingError) {
+  const over = Math.abs(timingError) - physics.batTimingPerfect;
+  if (over <= 0) return 1;
+  return Math.max(physics.batTimingFloor, 1 - (1 - physics.batTimingFloor) * (over / physics.batTimingFalloff));
+}
+
 function reflectBallFromBatModel(model, options) {
+  // 反射で速度が変わる前に、タイミングを測っておく
+  const timingError = getSwingTimingError(model);
+  const timingFactor = getTimingFactor(timingError);
+  model.lastTimingError = timingError;
+  model.lastTimingFactor = timingFactor;
+
   const batDirection = normalizeVector(Math.cos(model.batAngle), Math.sin(model.batAngle), 1, 0);
   let normalX = -batDirection.y;
   let normalY = batDirection.x;
@@ -1378,8 +1423,13 @@ function reflectBallFromBatModel(model, options) {
 
   // 打球速度：弱当たり（芯外し・かすり）は弱く、芯+スクエアでしっかり強くなる。
   // 下限を 150 まで下げ、強さの幅を確保。
+  // タイミング方式では、勢い = 上限 × 振りの足り具合 × タイミング係数。振りの速さは足りていれば頭打ち。
+  const power = physics.batPowerModel === "timing"
+    ? physics.batHitPowerMax * clamp(rawImpulse / physics.batFullSwingImpulse, 0, 1) * timingFactor
+    : impulse;
+  model.lastHitPower = power;
   const launchSpeed = clamp(
-    120 + impulse * sweetSpot * (0.55 + 0.55 * squareness)
+    120 + power * sweetSpot * (0.55 + 0.55 * squareness)
         + model.currentSpeed * 0.08 * sweetSpot,
     150,
     980
@@ -2876,6 +2926,9 @@ function spawnRunnerOnHit() {
     quality: playingState.lastHitQuality ?? 0,
     impulse: playingState.lastRawImpulse ?? 0,
     impulseEff: playingState.swingPower,
+    timingError: playingState.lastTimingError ?? null,
+    timingFactor: playingState.lastTimingFactor ?? null,
+    power: playingState.lastHitPower ?? null,
     speed: playingState.currentSpeed,
     vx: playingState.velocityX,
     vy: playingState.velocityY,
@@ -3306,7 +3359,8 @@ function applyPlayingEdgeBounce(rect) {
     const isBlueHit =
       model.isHit &&
       getHomeRunClearance(model, rect) >= 1 &&
-      (model.lastHitQuality ?? 0) >= physics.homeRunHitQuality;
+      (model.lastHitQuality ?? 0) >= physics.homeRunHitQuality &&
+      (physics.batPowerModel !== "timing" || (model.lastTimingFactor ?? 0) >= physics.homeRunTimingFactor);
     if (isBlueHit || playingState.isHomeRun) {
       // 青い打球は上辺で反射せず突き抜ける（ホームラン）
       if (isBlueHit && !playingState.isHomeRun) {
