@@ -734,7 +734,8 @@ const physics = {
   fielderPickupRadius: 56,
   // 打球はこの速さ（px/s）まで落ちれば、転がっている途中でも拾える（止まるまで待たない）。
   // 外野まで飛んだ深い打球は従来どおり、止まってから deepHitPickupDelay 待つ
-  fielderPickupRollSpeed: 200,
+  // 200 → 130: 200 では中級同士の得点が 2（少なすぎ）。130 で 4（docs/balance/tune/tuneF-notes-20261002.md）
+  fielderPickupRollSpeed: 130,
   // スイング角度のアナログばらつき（ラジアン）
   battingSwingAngleVariation: 0.05,
   // スイング後の接触猶予時間（秒）
