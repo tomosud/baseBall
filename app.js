@@ -397,7 +397,14 @@ function getPlayingLocalRect(element) {
 
 function startCpuIfSolo() {
   const bots = window.__yakyuBots;
-  if (!bots) return;
+  if (!bots) {
+    // ページ復帰時は保存データの読み込み（IndexedDB）が cpu.js の読み込みより先に終わることがある。
+    // そのときは読み込みが済んでから起動する（何もしないと CPU が動かず、ふたりで遊ぶ状態に見える）。
+    if (gameState.solo) window.addEventListener("load", () => {
+      if (gameState.solo && gameState.phase === "playing" && !window.__yakyuBots?.running) startCpuIfSolo();
+    }, { once: true });
+    return;
+  }
   // 打者の振り始めリードは run-baseline.js の既定（校正値）と同じ。タイミングのずれの中央値が 0 になる値
   if (gameState.solo) bots.start({ teams: { blue: null, red: gameState.solo }, batLead: 0.10 });
   else if (bots.running) bots.stop();
@@ -729,7 +736,10 @@ const physics = {
   batMaxLoadAngle: Math.PI / 2.4,
   batLoadDragDistance: 170,
   // フィールダーがボールをピックアップ後に引っ張れる最大距離（これ以上は弾くしかできない）
+  // （廃止）拾った球を引っ張れる距離の上限。今は制限なしで、代わりに fielderThrowMinTravel で防ぐ
   fielderPickupMaxDrag: 72,
+  // 送球は、離した位置からこれ以上（px）飛んでから走者に当たる
+  fielderThrowMinTravel: 60,
   // 守備が球を拾える距離（指と球の中心）。人の指は球の真上を正確に押せないので広めに取る
   fielderPickupRadius: 56,
   // 打球はこの速さ（px/s）まで落ちれば、転がっている途中でも拾える（止まるまで待たない）。
@@ -2858,11 +2868,9 @@ function getPlayingMound(rect) {
 function updatePlayingMoundHold() {
   const holding = playingState.pitcherPointerId !== null && !playingState.isFielderThrow;
   elements.playingMound.classList.toggle("is-holding", holding);
-  // 拾った球を持っている間は、指より大きい輪で「持っている」を見せる（球は指の下に隠れるため）
-  elements.playingBall.classList.toggle(
-    "is-held",
-    playingState.pitcherPointerId !== null && playingState.isFielderThrow,
-  );
+  // 球を持っている間は、指より大きい輪で「持っている」を見せる（球は指の下に隠れるため）
+  // 投球でも守備でも、球を掴んでいる間は同じ赤い輪（投げる側の「持っている」合図。打者・走者には「来るぞ」の合図）
+  elements.playingBall.classList.toggle("is-held", playingState.pitcherPointerId !== null);
   // ボールを掴んだ＝もう次のプレーが始まるので、読み物は引っ込める
   if (holding) hideBaseballTrivia();
 }
@@ -3287,6 +3295,10 @@ function checkPlayingBallHitsRunners(prevX, prevY) {
   // 拾って投げた「生きた送球」だけが走者を刺せる。
   // 壁に当たって跳ね返った球は、拾い直して投げ直すまでアウトを取れない。
   if (!playingState.throwIsLive) return false;
+  // 離した位置のすぐそばでは当たらない（走者の横まで運んで当てるのを防ぐ）
+  if (Math.hypot(playingState.ballX - playingState.throwReleaseX, playingState.ballY - playingState.throwReleaseY) < physics.fielderThrowMinTravel) {
+    return false;
+  }
 
   for (const runner of playingState.runners) {
     // 走っている走者だけが対象。塁上のセーフな走者とフォアボール進塁は当たらない。
@@ -3367,6 +3379,30 @@ function checkPlayingFoul() {
   }
 }
 
+// ファウルの球が放物線を描いて場外へ飛んでいく演出（判定とは無関係の見た目だけ）。
+// 本物の球はその場で消し、同じ位置から複製を飛ばす。大きくなって小さくなる = 高く上がって落ちる。
+function spawnFoulBallFlight() {
+  const x = playingState.ballX, y = playingState.ballY;
+  let vx = playingState.velocityX, vy = playingState.velocityY;
+  const sp = Math.hypot(vx, vy);
+  if (sp < 1) { vx = 0; vy = 1; } else { vx /= sp; vy /= sp; }
+  const dist = 190;
+  const el = document.createElement("div");
+  el.className = "batting-ball foul-ball-flight";
+  elements.playingSurface.appendChild(el);
+  const at = (k, scale) => `translate(${x + vx * dist * k}px, ${y + vy * dist * k}px) scale(${scale})`;
+  const anim = el.animate(
+    [
+      { transform: at(0, 1), opacity: 1 },
+      { transform: at(0.5, 2.1), opacity: 1, offset: 0.45 },
+      { transform: at(1, 0.7), opacity: 0 },
+    ],
+    { duration: 1100, easing: "cubic-bezier(0.25, 0.6, 0.4, 1)" },
+  );
+  anim.onfinish = () => el.remove();
+  setTimeout(() => el.remove(), 1500);
+}
+
 function callPlayingFoul(reason) {
   playingState.foulCheck = false;
   testLog("foul", {
@@ -3385,6 +3421,7 @@ function callPlayingFoul(reason) {
     gameState.strikes = Math.min(2, pre.strikes + 1); // 2ストライク後のファウルはカウントしない
   }
   playingState.preHit = null;
+  spawnFoulBallFlight();
   playingState.isHit = false;
   playingState.isHomeRun = false;
   playingState.runnerBoost = 0;
@@ -3397,7 +3434,8 @@ function callPlayingFoul(reason) {
   // インプレーの解除とクールダウンはここでも入れておく。
   updatePlayingMode();
   playingState.inPlay = false;
-  playingState.nextPitchReadyAt = performance.now() + physics.playEndPitchCooldownMs;
+  // 次の投球はファウルの球が飛び終わるのを待つ
+  playingState.nextPitchReadyAt = performance.now() + Math.max(physics.playEndPitchCooldownMs, 1100);
   saveGameToDB();
 }
 
@@ -3708,6 +3746,8 @@ function launchPlayingBall(vector) {
   const launch = launchPitchModel(playingState, vector, getPlayingStrikeZoneRect(), launchOptions);
   // 拾って投げた送球だけが「生きた送球」。壁に触れるまでの間だけアウトを取れる。
   playingState.throwIsLive = playingState.isFielderThrow;
+  playingState.throwReleaseX = playingState.ballX;
+  playingState.throwReleaseY = playingState.ballY;
   if (playingState.isFielderThrow) fielderThrowCount += 1;
   testLog(playingState.isFielderThrow ? "throw" : "pitch", {
     x: playingState.ballX,
@@ -3900,8 +3940,31 @@ function finishPlayingPitch(message = "READY") {
   playingState.restDelayElapsed = 0;
 }
 
+// 今、投球を始められるか（マウンドの見た目で知らせる）
+function canStartPitchNow() {
+  return !playingState.inPlay && !playingState.isPitched && !playingState.isHomeRun &&
+    playingState.pitcherPointerId === null &&
+    !playingState.runners.some((r) => r.state === "running") &&
+    performance.now() >= playingState.nextPitchReadyAt;
+}
+
+// タイミングの合図（文字ではなく盤面の要素で）:
+// - マウンド: 投げられない間は暗い（投げられるようになると明るく戻る）
+// - 塁: 走者が向かっている塁が光る（走者には「あそこまで」、守備には「あそこに着く前に」）
+function updatePlayingTimingCues() {
+  elements.playingMound.classList.toggle("is-waiting", !canStartPitchNow() && playingState.pitcherPointerId === null);
+  const targets = new Set();
+  for (const r of playingState.runners) {
+    if (r.state === "running" && !playingState.isHomeRun) targets.add(r.toBaseIndex);
+  }
+  [elements.playingBase0, elements.playingBase1, elements.playingBase2, elements.playingHomeBase].forEach((el, i) => {
+    el.classList.toggle("is-runner-target", targets.has(i));
+  });
+}
+
 function animatePlaying(timeStamp) {
   if (!playingState.isRunning) return;
+  updatePlayingTimingCues();
   invalidatePlayingGeom();   // このフレームぶんのジオメトリを取り直す
   if (!playingState.lastTick) playingState.lastTick = timeStamp;
   const dt = Math.min((timeStamp - playingState.lastTick) / 1000, 0.032);
@@ -4533,21 +4596,10 @@ function beginPlayingPointer(event) {
 function movePlayingPointer(event) {
   const point = getPlayingSurfacePoint(event);
   if (event.pointerId === playingState.pitcherPointerId) {
-    // ボールが指に追従（ピックアップ後は最大ドラッグ距離を制限し弾きのみ可能）
+    // ボールは指に付いてくる（拾った球も距離の制限なし）。
+    // 走者の近くまで運んで当てるのは、送球が離した位置から fielderThrowMinTravel 以上飛んで初めて当たる、で防ぐ。
     if (!playingState.isBallActive) {
-      if (playingState.wasPickedUp) {
-        const dx = point.x - playingState.pickupX;
-        const dy = point.y - playingState.pickupY;
-        const dist = Math.hypot(dx, dy);
-        if (dist > physics.fielderPickupMaxDrag) {
-          const scale = physics.fielderPickupMaxDrag / dist;
-          setPlayingBallPosition(playingState.pickupX + dx * scale, playingState.pickupY + dy * scale);
-        } else {
-          setPlayingBallPosition(point.x, point.y);
-        }
-      } else {
-        setPlayingBallPosition(point.x, point.y);
-      }
+      setPlayingBallPosition(point.x, point.y);
     }
     pushPlayingPitcherTrail(point.x, point.y, eventTime(event));
   } else if (event.pointerId === playingState.batterPointerId) {
@@ -4712,6 +4764,13 @@ function saveGameToDB() {
   if (saveTimerId) return;
   saveTimerId = setTimeout(flushSaveToDB, 250);
 }
+
+// ページを離れる（タブを閉じる・アプリを切り替える）ときは、遅延中の保存をすぐ書き出す。
+// 250ms の遅延の間に閉じると、最後の1球ぶんが保存されないため。
+window.addEventListener("pagehide", () => { if (saveTimerId) { clearTimeout(saveTimerId); flushSaveToDB(); } });
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden" && saveTimerId) { clearTimeout(saveTimerId); flushSaveToDB(); }
+});
 
 function clearSaveData() {
   // 保留中の書き込みが後から復活しないよう取り消す

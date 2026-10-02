@@ -51,6 +51,9 @@
     },
   };
 
+  // 投手の構え（球を掴んでから投げるまで）の長さ（ms）
+  const WINDUP_MS = [450, 800];
+
   // ---- 合成ポインタ ----
   // 人の指の pointerId（小さい整数）とぶつからないよう大きい番号を使う。
   const PID = { pitcher: 1001, batter: 1002, runner: 1003 };
@@ -130,7 +133,7 @@
     constructor(id, steps) { this.id = id; this.steps = steps; this.i = 0; }
     step() {
       const s = this.steps[this.i++];
-      dispatch(s.type, this.id, s.x, s.y);
+      if (s.type !== "wait") dispatch(s.type, this.id, s.x, s.y); // wait = 指を置いたまま1フレーム待つ
       return this.i >= this.steps.length;
     }
   }
@@ -226,6 +229,10 @@
       target = { x: target.x - this.bias[key], y: target.y };
       this.pending = { aimX, key };
       this.gesture = buildSwipe(start, target, speed, 6, turn, PID.pitcher);
+      // 構え: 球を掴んで少し止まってから投げる。掴んでいる間は赤い輪が出るので、打者への「来るぞ」の合図になる
+      const holdFrames = Math.round(range(WINDUP_MS[0], WINDUP_MS[1]) / FRAME);
+      const [first, ...rest] = this.gesture.steps;
+      this.gesture.steps = [first, ...Array.from({ length: holdFrames }, () => ({ type: "wait" })), ...rest];
     }
   }
 

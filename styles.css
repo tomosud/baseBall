@@ -427,7 +427,7 @@ button {
   transition: transform 90ms ease-out;
 }
 
-/* 拾った球を持っている間の輪。指（直径 40px 前後）より大きくして隠れないようにする */
+/* 球を持っている間の輪（投球・守備とも）。指（直径 40px 前後）より大きくして隠れないようにする */
 .batting-ball.is-held::after {
   content: "";
   position: absolute;
@@ -436,9 +436,9 @@ button {
   width: 70px;
   height: 70px;
   margin: -35px 0 0 -35px;
-  border: 3px solid rgba(255, 214, 10, 0.9);
+  border: 3px solid rgba(255, 69, 58, 0.95);
   border-radius: 50%;
-  box-shadow: 0 0 12px rgba(255, 159, 10, 0.6);
+  box-shadow: 0 0 12px rgba(255, 69, 58, 0.6);
   pointer-events: none;
   animation: held-ring-in 120ms ease-out;
 }
@@ -1306,6 +1306,15 @@ button {
   box-shadow: 0 0 14px rgba(255, 69, 58, 0.5), inset 0 0 12px rgba(255, 69, 58, 0.25);
 }
 
+/* 投げられない間（プレー中・判定直後のクールダウン）は暗くする */
+.playing-mound.is-waiting {
+  opacity: 0.3;
+}
+
+.playing-mound {
+  transition: opacity 200ms ease;
+}
+
 .playing-mound-center {
   position: absolute;
   top: 50%;
@@ -1333,6 +1342,24 @@ button {
   background: transparent;
   border: 1px dashed rgba(255, 255, 255, 0.3);
   transform-origin: center center;
+  pointer-events: none;
+}
+
+/* 走者が向かっている塁 */
+.playing-base.is-runner-target {
+  border: 2px solid rgba(255, 214, 10, 0.9);
+  box-shadow: 0 0 10px rgba(255, 214, 10, 0.6);
+  animation: runner-target-base 0.7s ease-in-out infinite alternate;
+}
+
+@keyframes runner-target-base {
+  from { opacity: 0.55; }
+  to   { opacity: 1; }
+}
+
+/* ファウルの球（放物線の演出用の複製） */
+.foul-ball-flight {
+  z-index: 6;
   pointer-events: none;
 }
 
