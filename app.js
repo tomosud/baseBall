@@ -2415,14 +2415,15 @@ let cancelResetHold = () => {};
   }
 
   let choosing = false;
-  function chooseInnings(n) {
+  // solo: ひとりで遊ぶときの CPU の腕前。null はふたりで遊ぶ。
+  function chooseInnings(n, solo = null) {
     return (e) => {
       if (choosing) return;
       choosing = true;
       e.preventDefault();
       e.stopPropagation();
       fullReset();
-      showPlayingScreen(n, gameState.solo);
+      showPlayingScreen(n, solo);
       setTimeout(() => { choosing = false; }, 500);
     };
   }
@@ -2442,6 +2443,11 @@ let cancelResetHold = () => {};
   }
   btnTitle.addEventListener("pointerdown", goTitle);
   btnTitle.addEventListener("click", goTitle);
+  choiceOverlay.querySelectorAll("[data-reset-cpu-level]").forEach((b) => {
+    const choose = chooseInnings(3, b.dataset.resetCpuLevel);
+    b.addEventListener("pointerdown", choose);
+    b.addEventListener("click", choose);
+  });
   btn3.addEventListener("pointerdown", chooseInnings(3));
   btn9.addEventListener("pointerdown", chooseInnings(9));
   btn3.addEventListener("click", chooseInnings(3));

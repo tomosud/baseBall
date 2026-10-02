@@ -69,10 +69,17 @@
         </div>
         <!-- リセット選択オーバーレイ -->
         <div class="reset-choice-overlay is-hidden" id="resetChoiceOverlay">
-          <p class="reset-choice-message">何回でリセット？</p>
+          <p class="reset-choice-message">どれでやり直す？</p>
+          <p class="reset-choice-label">ふたりで</p>
           <div class="reset-choice-buttons">
             <button type="button" class="reset-choice-btn" id="resetChoice3">3回</button>
             <button type="button" class="reset-choice-btn" id="resetChoice9">9回</button>
+          </div>
+          <p class="reset-choice-label">ひとりで（3回・CPUと対戦）</p>
+          <div class="reset-choice-buttons">
+            <button type="button" class="reset-choice-btn reset-choice-cpu" data-reset-cpu-level="novice">よわい</button>
+            <button type="button" class="reset-choice-btn reset-choice-cpu" data-reset-cpu-level="mid">ふつう</button>
+            <button type="button" class="reset-choice-btn reset-choice-cpu" data-reset-cpu-level="expert">つよい</button>
           </div>
           <button type="button" class="reset-choice-btn reset-choice-title" id="resetChoiceTitle">タイトルへ</button>
         </div>
