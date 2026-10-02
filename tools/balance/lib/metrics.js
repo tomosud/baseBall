@@ -114,6 +114,8 @@ export function aggregate(games) {
     kRate: pa ? sum((m) => m.strikeouts) / pa : null,
     bbRate: pa ? sum((m) => m.walks) / pa : null,
     inplayRate: pa ? inplay / pa : null,
+    // 当たり（インプレー＋ファウル）のうちファウルの割合
+    foulRate: (() => { const f = sum((m) => m.fouls || 0); return f + inplay ? f / (f + inplay) : null; })(),
     swingStrikeShare: (() => { const s = sum((m) => m.strikesSwing), c = sum((m) => m.strikesCalled); return s + c ? s / (s + c) : null; })(),
     ballRate: pitches ? sum((m) => m.balls) / pitches : null,
     pitchMissRate: pitches ? sum((m) => m.pitchMiss) / pitches : null,

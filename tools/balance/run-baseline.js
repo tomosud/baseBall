@@ -99,9 +99,9 @@ for (const [k, a] of Object.entries(agg)) {
 }
 
 md += `\n## 2. 打席の内訳\n\n`;
-md += `| カード | 打席/試合 | 球数/打席 | 三振 | 四球 | インプレー | 空振り率(ストライク中) | ボール率 | 投げミス | デッドボール/球 | DB得点比 |\n|---|---|---|---|---|---|---|---|---|---|---|\n`;
+md += `| カード | 打席/試合 | 球数/打席 | 三振 | 四球 | インプレー | ファウル(当たり中) | 空振り率(ストライク中) | ボール率 | 投げミス | デッドボール/球 | DB得点比 |\n|---|---|---|---|---|---|---|---|---|---|---|---|\n`;
 for (const [k, a] of Object.entries(agg)) {
-  md += `| ${cellName(k)} | ${num(a.paPerGame)} | ${num(a.pitchesPerPA, 2)} | ${pct(a.kRate)} | ${pct(a.bbRate)} | ${pct(a.inplayRate)} | ${pct(a.swingStrikeShare)} | ${pct(a.ballRate)} | ${pct(a.pitchMissRate)} | ${pct(a.deadballRate)} | ${pct(a.deadballRunsShare)} |\n`;
+  md += `| ${cellName(k)} | ${num(a.paPerGame)} | ${num(a.pitchesPerPA, 2)} | ${pct(a.kRate)} | ${pct(a.bbRate)} | ${pct(a.inplayRate)} | ${pct(a.foulRate)} | ${pct(a.swingStrikeShare)} | ${pct(a.ballRate)} | ${pct(a.pitchMissRate)} | ${pct(a.deadballRate)} | ${pct(a.deadballRunsShare)} |\n`;
 }
 
 md += `\n## 3. インプレー（打球が出たあと）\n\n`;
