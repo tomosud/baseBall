@@ -38,7 +38,7 @@ export function gameMetrics(result) {
       case "hit":
         closePlay();
         m.pa++; m.inplay++;
-        play = { quality: e.quality, speed: e.speed, outs: 0, runs: 0, throws: 0, homerun: false };
+        play = { quality: e.quality, speed: e.speed, impulse: e.impulse, outs: 0, runs: 0, throws: 0, homerun: false };
         break;
       case "throw": m.throws++; if (play) play.throws++; break;
       case "tagout": m.tagouts++; break;
@@ -123,6 +123,8 @@ export function aggregate(games) {
     hitSpeedMedian: median(hits.map((h) => h.speed)),
     hitSpeedP10: quantile(hits.map((h) => h.speed), 0.1),
     hitSpeedP90: quantile(hits.map((h) => h.speed), 0.9),
+    // 圧縮前のスイングの勢い。古いログには無いので、あるものだけで出す。
+    impulseMedian: median(hits.filter((h) => h.impulse != null).map((h) => h.impulse)),
     halfInningsPerGame: sum((m) => m.halfInnings) / n,
   };
 }

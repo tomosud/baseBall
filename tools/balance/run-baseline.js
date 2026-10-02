@@ -103,9 +103,9 @@ for (const [k, a] of Object.entries(agg)) {
 }
 
 md += `\n## 3. インプレー（打球が出たあと）\n\n`;
-md += `| カード | アウト率 | 得点/打球 | HR率 | 送球/打球 | 送球なし | 当たりの質 中央値 | 打球速度 p10/中央/p90 |\n|---|---|---|---|---|---|---|---|\n`;
+md += `| カード | アウト率 | 得点/打球 | HR率 | 送球/打球 | 送球なし | 当たりの質 中央値 | 打球速度 p10/中央/p90 | impulse 中央値 |\n|---|---|---|---|---|---|---|---|---|\n`;
 for (const [k, a] of Object.entries(agg)) {
-  md += `| ${cellName(k)} | ${pct(a.inplayOutRate)} | ${num(a.inplayRunRate, 2)} | ${pct(a.hrRate)} | ${num(a.throwsPerInplay, 2)} | ${pct(a.noThrowShare)} | ${num(a.hitQualityMedian, 2)} | ${num(a.hitSpeedP10, 0)} / ${num(a.hitSpeedMedian, 0)} / ${num(a.hitSpeedP90, 0)} |\n`;
+  md += `| ${cellName(k)} | ${pct(a.inplayOutRate)} | ${num(a.inplayRunRate, 2)} | ${pct(a.hrRate)} | ${num(a.throwsPerInplay, 2)} | ${pct(a.noThrowShare)} | ${num(a.hitQualityMedian, 2)} | ${num(a.hitSpeedP10, 0)} / ${num(a.hitSpeedMedian, 0)} / ${num(a.hitSpeedP90, 0)} | ${num(a.impulseMedian, 0)} |\n`;
 }
 
 md += `\n## 4. 腕前差の反映度\n\n`;
