@@ -1,13 +1,5 @@
 // 1試合を回してイベントログと結果を返す。
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { openGamePage, startGame, applyPhysics, readState, readEvents, runFor } from "./browser.js";
-
-const BOTS_SRC = fs.readFileSync(
-  path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../bots.browser.js"),
-  "utf-8",
-);
 
 // 仮想時計の上限（秒）。ボットが詰まったときに無限に回らないための保険。
 const MAX_VIRTUAL_SECONDS = { 3: 1500, 9: 4000 };
@@ -26,7 +18,7 @@ export async function playGame(browser, serverUrl, {
   try {
     await applyPhysics(page, physics);
     await startGame(page, innings);
-    await page.addScriptTag({ content: BOTS_SRC });
+    // ボットは index.html が読み込む cpu.js（ひとりで遊ぶときの CPU と同じもの）
     await page.evaluate((cfg) => window.__yakyuBots.start(cfg), { teams, batLead, batSweetOffset });
 
     const limit = MAX_VIRTUAL_SECONDS[innings] * 1000;

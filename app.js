@@ -291,6 +291,9 @@ const gameState = {
   phase: "pregame",    // "pregame"|"playing"|"change"|"gameset"
   maxInnings: 9,
   playToken: 0,
+  // ひとりで遊ぶときの CPU の腕前（"novice"|"mid"|"expert"）。null はふたりで遊ぶ。
+  // 人は青軍（先攻）、CPU は赤軍。
+  solo: null,
 };
 
 function resetGameState() {
@@ -356,6 +359,65 @@ function updateStatusBar() {
   elements.playingLabelBatter.classList.remove("team-red", "team-blue");
   elements.playingLabelPitcher.classList.add(pitcherColor);
   elements.playingLabelBatter.classList.add(batterColor);
+
+  updatePlayingFlip();
+}
+
+// ---- ひとりで遊ぶ（CPU 対戦）と盤面の回転 ----
+// 人が守る裏の回は盤面を 180° 回して、人の側（投手・守備）を常に画面の下にする。
+// 盤面の座標（物理・描画）は回さない。画面との出入り（ポインタ入力と DOM の実測）だけを鏡映する。
+const CPU_LEVELS = ["novice", "mid", "expert"];
+
+function isPlayingFlipped() {
+  return elements.playingSurface.classList.contains("is-flipped");
+}
+
+function updatePlayingFlip() {
+  const flip = Boolean(gameState.solo) && !gameState.isTop;
+  if (flip === isPlayingFlipped()) return;
+  elements.playingSurface.classList.toggle("is-flipped", flip);
+  invalidatePlayingGeom();
+}
+
+// 盤面の中の要素の位置（盤面座標）。getBoundingClientRect は回転後の見た目を返すので、回っていれば戻す。
+function getPlayingLocalRect(element) {
+  const s = getPlayingSurfaceRect();
+  const r = element.getBoundingClientRect();
+  let left = r.left - s.left;
+  let top = r.top - s.top;
+  if (isPlayingFlipped()) {
+    left = s.width - (left + r.width);
+    top = s.height - (top + r.height);
+  }
+  return { left, top, right: left + r.width, bottom: top + r.height, width: r.width, height: r.height };
+}
+
+function startCpuIfSolo() {
+  const bots = window.__yakyuBots;
+  if (!bots) return;
+  // 打者の振り始めリードは run-baseline.js の既定（校正値）と同じ 0.16 秒
+  if (gameState.solo) bots.start({ teams: { blue: null, red: gameState.solo }, batLead: 0.16 });
+  else if (bots.running) bots.stop();
+}
+
+function stopCpu() {
+  if (window.__yakyuBots?.running) window.__yakyuBots.stop();
+}
+
+// ひとりで遊ぶとき、人の指は自分のチームの役割にだけ効かせる（CPU の操作に割り込まない）。
+// CPU の合成イベントは isTrusted が false なので素通しする。
+function isHumanTouchAllowed(event, point) {
+  if (!gameState.solo || !event.isTrusted) return true;
+  const humanAttacking = gameState.isTop;
+  if (hasActiveRunners()) {
+    const ballOnField = playingState.isFielderThrow || (playingState.isHit && playingState.isResting);
+    const nearBall = ballOnField && Math.hypot(point.x - playingState.ballX, point.y - playingState.ballY) <= 36;
+    const tapZone = playingState.inPlay && !nearBall &&
+      point.y >= getPlayingSurfaceRect().height * physics.runnerBoostAreaTopRatio;
+    return humanAttacking ? tapZone : !tapZone;
+  }
+  const batterSide = !isTopHalf(point.y);
+  return humanAttacking ? batterSide : !batterSide;
 }
 
 function gameProcessStrike() {
@@ -1563,6 +1625,7 @@ function createPlayingSoftReleaseVector(vector) {
 }
 
 function showMainScreen() {
+  stopCpu();
   stopPitchAnimation();
   stopBattingAnimation();
   stopPlayingAnimation();
@@ -2285,9 +2348,12 @@ elements.openPitchPrototype?.addEventListener("click", showPrototypeScreen);
 elements.openBattingPrototype?.addEventListener("click", showBattingScreen);
 elements.openPlayingPrototype?.addEventListener("click", () => showPlayingScreen(9));
 elements.openPlayingPrototype3?.addEventListener("click", () => showPlayingScreen(3));
+document.querySelectorAll("[data-cpu-level]").forEach((btn) => {
+  btn.addEventListener("click", () => showPlayingScreen(3, btn.dataset.cpuLevel));
+});
 elements.backButton?.addEventListener("click", showMainScreen);
 elements.battingBackButton?.addEventListener("click", showMainScreen);
-elements.overlayButton?.addEventListener("click", () => { showPlayingScreen(gameState.maxInnings || 9); });
+elements.overlayButton?.addEventListener("click", () => { showPlayingScreen(gameState.maxInnings || 9, gameState.solo); });
 
 // リセットボタン長押し（3秒）
 let cancelResetHold = () => {};
@@ -2355,7 +2421,7 @@ let cancelResetHold = () => {};
       e.preventDefault();
       e.stopPropagation();
       fullReset();
-      showPlayingScreen(n);
+      showPlayingScreen(n, gameState.solo);
       setTimeout(() => { choosing = false; }, 500);
     };
   }
@@ -2415,7 +2481,10 @@ function getPlayingSurfaceRect() {
 
 function getPlayingStrikeZoneRect() {
   const c = playingGeom();
-  if (!c.zone) c.zone = getZoneRect(elements.playingSurface, elements.playingStrikeZone);
+  if (!c.zone) {
+    const r = getPlayingLocalRect(elements.playingStrikeZone);
+    c.zone = { left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+  }
   return c.zone;
 }
 
@@ -3179,9 +3248,7 @@ function startPlayingRolling() {
 function getPlayingTopWallY() {
   const c = playingGeom();
   if (c.topWallY === null) {
-    const surfaceRect = getPlayingSurfaceRect();
-    const wallRect = elements.playingTopWall.getBoundingClientRect();
-    c.topWallY = wallRect.bottom - surfaceRect.top;
+    c.topWallY = getPlayingLocalRect(elements.playingTopWall).bottom;
   }
   return c.topWallY;
 }
@@ -3371,6 +3438,7 @@ function launchPlayingBall(vector) {
   const launch = launchPitchModel(playingState, vector, getPlayingStrikeZoneRect(), launchOptions);
   // 拾って投げた送球だけが「生きた送球」。壁に触れるまでの間だけアウトを取れる。
   playingState.throwIsLive = playingState.isFielderThrow;
+  if (playingState.isFielderThrow) fielderThrowCount += 1;
   testLog(playingState.isFielderThrow ? "throw" : "pitch", {
     x: playingState.ballX,
     y: playingState.ballY,
@@ -3453,12 +3521,11 @@ function spawnDeadBallBurst(x, y) {
 // 加点そのものは呼び出し側で即座に済ませておく（飛行中にイニングが終わっても
 // 得点が消えないようにするため。演出の完了を待つと取りこぼす経路がある）。
 function flyScorePointToTeam(fromX, fromY, teamIdx, label) {
-  const surfaceRect = getPlayingSurfaceRect();
   const targetEl = teamIdx === 0 ? elements.statusTeamBlue : elements.statusTeamRed;
   const scoreEl = teamIdx === 0 ? elements.statusScoreBlue : elements.statusScoreRed;
-  const targetRect = targetEl.getBoundingClientRect();
-  const toX = targetRect.left - surfaceRect.left + targetRect.width * 0.5;
-  const toY = targetRect.top - surfaceRect.top + targetRect.height * 0.5;
+  const targetRect = getPlayingLocalRect(targetEl);
+  const toX = targetRect.left + targetRect.width * 0.5;
+  const toY = targetRect.top + targetRect.height * 0.5;
 
   const el = document.createElement("div");
   el.className = `score-fly-point ${teamIdx === 0 ? "team-blue" : "team-red"}`;
@@ -3841,8 +3908,9 @@ function animatePlaying(timeStamp) {
   playingState.animationFrameId = window.requestAnimationFrame(animatePlaying);
 }
 
-function showPlayingScreen(maxInnings = 9) {
+function showPlayingScreen(maxInnings = 9, solo = null) {
   cancelResetHold();
+  stopCpu();
   stopPitchAnimation();
   stopBattingAnimation();
   stopPlayingAnimation();
@@ -3856,10 +3924,12 @@ function showPlayingScreen(maxInnings = 9) {
   warmUpSfx();
   resetGameState();
   gameState.maxInnings = maxInnings;
+  gameState.solo = CPU_LEVELS.includes(solo) ? solo : null;
   resetPlayingState();
   updatePlayingBasesDOM();
   gameState.phase = "playing";
   updateStatusBar();
+  startCpuIfSolo();
   // PLAY BALL オーバーレイを 1.2s 表示してから試合開始
   playSfx("start");
   hideBaseballTrivia();
@@ -3912,39 +3982,47 @@ function testLog(type, data) {
   });
 }
 
-if (TEST_MODE) {
-  window.__yakyuTest = {
-    physics,
-    playingState,
-    gameState,
-    elements,
-    events: testEvents,
-    runnerHitRadius: PLAYING_RUNNER_HIT_RADIUS,
-    geometry() {
-      invalidatePlayingGeom();
-      const rect = getPlayingSurfaceRect();
-      return {
-        width: rect.width,
-        height: rect.height,
-        topWallY: getPlayingTopWallY(),
-        bases: getPlayingBasePositions(rect),
-        home: getPlayingHomePlate(rect),
-        mound: getPlayingMound(rect),
-        zone: getPlayingStrikeZoneRect(),
-      };
-    },
-    hasActiveRunners,
-    showPlayingScreen,
-    spawnRunnerOnHit,
-    applyRunnerBoostTap,
-    launchPlayingBall,
-    finishPlayingPitch,
-  };
-}
+// 守備の送球の回数。CPU の走者が「投げられた」と気づくのに使う（testLog は本番で記録しないため別に数える）。
+let fielderThrowCount = 0;
+
+// CPU（cpu.js）とバランス計測ハーネスが使う口。本番でも公開する（ひとりで遊ぶときの CPU が使う）。
+const yakyuHooks = {
+  physics,
+  playingState,
+  gameState,
+  elements,
+  events: testEvents,
+  throwCount: () => fielderThrowCount,
+  isFlipped: () => isPlayingFlipped(),
+  runnerHitRadius: PLAYING_RUNNER_HIT_RADIUS,
+  geometry() {
+    invalidatePlayingGeom();
+    const rect = getPlayingSurfaceRect();
+    return {
+      width: rect.width,
+      height: rect.height,
+      topWallY: getPlayingTopWallY(),
+      bases: getPlayingBasePositions(rect),
+      home: getPlayingHomePlate(rect),
+      mound: getPlayingMound(rect),
+      zone: getPlayingStrikeZoneRect(),
+    };
+  },
+  hasActiveRunners,
+  showPlayingScreen,
+  spawnRunnerOnHit,
+  applyRunnerBoostTap,
+  launchPlayingBall,
+  finishPlayingPitch,
+};
+window.__yakyuHooks = yakyuHooks;
+if (TEST_MODE) window.__yakyuTest = yakyuHooks;
 
 function getPlayingSurfacePoint(event) {
   const rect = getPlayingSurfaceRect();
-  return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+  const x = event.clientX - rect.left;
+  const y = event.clientY - rect.top;
+  return isPlayingFlipped() ? { x: rect.width - x, y: rect.height - y } : { x, y };
 }
 
 function hasActiveRunners() {
@@ -4036,6 +4114,7 @@ function beginPlayingPointer(event) {
   if (gameState.phase !== "playing" || !playingState.isRunning) return;
 
   const point = getPlayingSurfacePoint(event);
+  if (!isHumanTouchAllowed(event, point)) return;
   if (isTopHalf(point.y)) {
     // ピッチャー側
     // ピックアップ判定:
@@ -4316,6 +4395,7 @@ function saveGameToDB() {
     score: [...gameState.score],
     inningScores: gameState.inningScores.map((r) => [...r]),
     maxInnings: gameState.maxInnings,
+    solo: gameState.solo,
     runners: savedRunners,
     savedAt: Date.now(),
   };
@@ -4359,6 +4439,7 @@ function applyLoadedGame(data) {
   gameState.inningScores = Array.isArray(data.inningScores)
     ? data.inningScores.map((r) => [...r])
     : Array.from({ length: 9 }, () => [0, 0]);
+  gameState.solo = CPU_LEVELS.includes(data.solo) ? data.solo : null;
   gameState.phase = "playing";
 }
 
@@ -4608,6 +4689,7 @@ loadGameFromDB().then((saved) => {
     elements.playingScreen.classList.remove("is-hidden");
     updatePlayingBasesDOM();
     restoreRunnersFromSave(saved.runners || []);
+    startCpuIfSolo();
     playSfx("start");
     hideBaseballTrivia();
     showOverlay("PLAY BALL!", "", false);

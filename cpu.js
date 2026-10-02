@@ -1,11 +1,14 @@
-// ページ内で動くボット。本物の app.js に合成 PointerEvent を流して2人分の操作を再現する。
-// Node 側（lib/game.js）が page.addScriptTag で注入し、window.__yakyuBots.start(config) で起動する。
+// ページ内で動くボット（CPU）。本物の app.js に合成 PointerEvent を流して人の操作を再現する。
+// index.html が app.js の後に読み込み、window.__yakyuBots.start(config) で起動する。
+// 使い道は2つ: ひとりで遊ぶときの相手（片方のチームだけ）と、バランス計測ハーネス（tools/balance、両チーム）。
 //
 // 役割は4つ（投手・守備 = 守る側のプレイヤー、打者・走者 = 攻める側のプレイヤー）。
 // 腕前は「操作の誤差」と「判断の質」のパラメータで表す（docs/balance-plan.md §5）。
 // ボットは「上手いAI」ではなく「人の手の癖の近似」なので、上級でも誤差はゼロにしない。
 (() => {
-  const T = window.__yakyuTest;
+  // app.js が公開する口（本番は __yakyuHooks、?test=1 では同じものが __yakyuTest にもある）
+  const T = window.__yakyuTest || window.__yakyuHooks;
+  if (!T) return;
   const P = T.physics;
   const S = T.playingState;
   const G = T.gameState;
@@ -49,17 +52,20 @@
   };
 
   // ---- 合成ポインタ ----
-  const PID = { pitcher: 1, batter: 2, runner: 3 };
+  // 人の指の pointerId（小さい整数）とぶつからないよう大きい番号を使う。
+  const PID = { pitcher: 1001, batter: 1002, runner: 1003 };
   const down = new Set();
   function dispatch(type, id, x, y) {
     const rect = surface.getBoundingClientRect();
+    // 盤面が 180° 回っているとき（ひとりで遊ぶ裏の回）は、盤面座標を画面座標へ鏡映して渡す。
+    if (T.isFlipped && T.isFlipped()) { x = rect.width - x; y = rect.height - y; }
     surface.dispatchEvent(
       new PointerEvent(type, {
         bubbles: true,
         cancelable: true,
         pointerId: id,
         pointerType: "touch",
-        isPrimary: id === 1,
+        isPrimary: id === PID.pitcher,
         clientX: rect.left + x,
         clientY: rect.top + y,
       }),
@@ -407,7 +413,7 @@
       const k = this.k;
       // 送球の気配（拾った／投げた）を見て、少しの間だけ止まって読みを外す
       const pickedNow = S.wasPickedUp && S.pitcherPointerId !== null;
-      const throwCount = T.events.filter((e) => e.type === "throw").length;
+      const throwCount = T.throwCount();
       const cue = (pickedNow && !this.lastPickup) || throwCount !== this.lastThrowCount;
       this.lastPickup = pickedNow;
       this.lastThrowCount = throwCount;
@@ -442,60 +448,74 @@
 
   function sideSkills(side) {
     const spec = teams[side];
-    const preset = typeof spec === "string" ? PRESETS[spec] : spec;
-    return preset;
+    if (!spec) return null;
+    return typeof spec === "string" ? PRESETS[spec] : spec;
   }
 
+  // teams の片方を null にすると、そのチームは人が操作する（CPU は手を出さない）。
   function buildRoles() {
-    const blue = sideSkills("blue"), red = sideSkills("red");
-    roles = {
-      blue: { pitcher: new Pitcher(blue.pitcher), fielder: new Fielder(blue.fielder), batter: new Batter(blue.batter), runner: new Runner(blue.runner) },
-      red: { pitcher: new Pitcher(red.pitcher), fielder: new Fielder(red.fielder), batter: new Batter(red.batter), runner: new Runner(red.runner) },
-    };
+    roles = {};
+    for (const side of ["blue", "red"]) {
+      const k = sideSkills(side);
+      if (!k) continue;
+      roles[side] = { pitcher: new Pitcher(k.pitcher), fielder: new Fielder(k.fielder), batter: new Batter(k.batter), runner: new Runner(k.runner) };
+    }
   }
 
   let wasInPlay = false;
+  // start し直したとき古いループが残らないよう、ループごとに番号を持たせる。
+  let loopId = 0;
+  function loop(id) {
+    if (!running || id !== loopId) return;
+    requestAnimationFrame(() => loop(id));
+    frame();
+  }
   function frame() {
-    if (!running) return;
-    requestAnimationFrame(frame);
     frameCount++;
     const phase = G.phase;
     if (phase !== lastPhase) {
       releaseAll();
-      for (const side of ["blue", "red"]) {
-        roles[side].batter.reset(); roles[side].fielder.reset(); roles[side].runner.reset();
-        roles[side].pitcher.gesture = null;
+      for (const r of Object.values(roles)) {
+        r.batter.reset(); r.fielder.reset(); r.runner.reset();
+        r.pitcher.gesture = null;
       }
+      // 盤面の寸法は試合中に変わり得る（回転・リサイズ）。区切りごとに測り直す。
+      refreshGeom();
       lastPhase = phase;
     }
     if (phase !== "playing" || !S.isRunning) return;
     const attack = G.isTop ? "blue" : "red";
     const defend = G.isTop ? "red" : "blue";
-    if (wasInPlay && !S.inPlay) roles[defend].fielder.reset();
+    const att = roles[attack], def = roles[defend];
+    if (wasInPlay && !S.inPlay) def?.fielder.reset();
     wasInPlay = S.inPlay;
     if (S.inPlay) {
-      roles[defend].fielder.frame();
-      roles[attack].runner.frame();
-      roles[attack].batter.frame();
+      def?.fielder.frame();
+      att?.runner.frame();
+      att?.batter.frame();
     } else {
-      roles[defend].pitcher.frame();
-      roles[attack].batter.frame();
+      def?.pitcher.frame();
+      att?.batter.frame();
     }
   }
 
   window.__yakyuBots = {
     PRESETS,
     start(config) {
+      if (running) this.stop();
       teams = config.teams;
       if (config.batLead !== undefined) BAT_LEAD = config.batLead;
       if (config.batSweetOffset !== undefined) BAT_SWEET_OFFSET = config.batSweetOffset;
       refreshGeom();
       buildRoles();
       running = true;
+      wasInPlay = false;
       lastPhase = null;
-      requestAnimationFrame(frame);
+      const id = ++loopId;
+      requestAnimationFrame(() => loop(id));
     },
     stop() { running = false; releaseAll(); },
+    get running() { return running; },
     log: LOG,
     setBatLead(v) { BAT_LEAD = v; },
     frames: () => frameCount,

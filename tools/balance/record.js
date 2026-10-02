@@ -9,12 +9,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { startServer } from "./lib/server.js";
 import { launchBrowser, openGamePage, startGame, applyPhysics, runFor } from "./lib/browser.js";
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const BOTS_SRC = fs.readFileSync(path.resolve(ROOT, "tools/balance/bots.browser.js"), "utf-8");
 
 function arg(name, def) {
   const i = process.argv.indexOf(`--${name}`);
@@ -65,7 +62,6 @@ try {
   await applyPhysics(page, PHYSICS);
   await startGame(page, 3);
   await page.evaluate(TOUCH_OVERLAY);
-  await page.addScriptTag({ content: BOTS_SRC });
   await page.evaluate((cfg) => window.__yakyuBots.start(cfg), { teams: { blue: BLUE, red: RED } });
 
   const frames = Math.round(SECONDS * FPS);

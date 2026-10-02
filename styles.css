@@ -97,6 +97,17 @@ button {
   flex: 1;
 }
 
+.main-solo-label {
+  margin: 10px 0 -4px;
+  font-size: 0.9rem;
+  color: rgba(242, 242, 242, 0.7);
+}
+
+.main-solo-group .main-solo-button {
+  min-height: 48px;
+  padding: 0 12px;
+}
+
 .prototype-screen {
   position: relative;
   background: var(--bg-prototype);
@@ -1520,4 +1531,30 @@ button {
   60%  { transform: translate(calc(-50% + 2px), calc(-50% + 2px)) rotate(1.3deg); }
   80%  { transform: translate(calc(-50% - 3px), calc(-50% - 2px)) rotate(-1.5deg); }
   100% { transform: translate(calc(-50% + 3px), calc(-50% - 1px)) rotate(1.2deg); }
+}
+
+/* ===== ひとりで遊ぶ: 人が守る裏の回は盤面ごと 180° 回す =====
+   人（守備側）を画面の下にする。もともと守備側に向けて逆さにしてある表示（守備側の得点・PITCHER・豆知識）は
+   これで正立する。人に向けた共通の表示（HUD・オーバーレイ・判定の文字）は逆回しで正立に戻す。
+   座標の鏡映は app.js（getPlayingSurfacePoint / getPlayingLocalRect）。 */
+.playing-surface.is-flipped {
+  transform: rotate(180deg);
+}
+
+/* HUD は回した盤面の下端（= 画面の上端）に置き直す */
+.playing-surface.is-flipped .playing-status-bar {
+  top: auto;
+  bottom: env(safe-area-inset-top);
+  transform: rotate(180deg);
+}
+
+.playing-surface.is-flipped .playing-overlay,
+.playing-surface.is-flipped .reset-choice-overlay {
+  transform: rotate(180deg);
+}
+
+.playing-surface.is-flipped .playing-call,
+.playing-surface.is-flipped .hold-indicator,
+.playing-surface.is-flipped .playing-tag-label {
+  transform: translate(-50%, -50%) rotate(180deg);
 }

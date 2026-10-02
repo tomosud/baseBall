@@ -36,7 +36,7 @@ tools/balance/
   lib/browser.js         ページを開く・試合を始める・状態を読む
   lib/game.js            1試合を回してイベントログを返す
   lib/metrics.js         イベントログ → 指標（docs/balance-plan.md §3）
-  bots.browser.js        ページ内で動くボット（投手・打者・走者・守備 × 腕前プリセット）
+  （ボット本体はリポジトリ直下の cpu.js。ひとりで遊ぶときの CPU と同じもの。index.html が読み込む）
 ```
 
 ## 仕組みのメモ

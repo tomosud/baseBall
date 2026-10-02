@@ -19,6 +19,13 @@
           <button type="button" class="main-button" id="openPlayingPrototype">9回で対戦</button>
           <button type="button" class="main-button" id="openPlayingPrototype3">3回で対戦</button>
         </div>
+        <!-- ひとりで遊ぶ（3回、CPU と対戦）。あなたは青軍（先攻）。 -->
+        <p class="main-solo-label">ひとりで（3回・CPUと対戦）</p>
+        <div class="main-button-group main-solo-group">
+          <button type="button" class="main-button main-solo-button" data-cpu-level="novice">よわい</button>
+          <button type="button" class="main-button main-solo-button" data-cpu-level="mid">ふつう</button>
+          <button type="button" class="main-button main-solo-button" data-cpu-level="expert">つよい</button>
+        </div>
       </div>
     </main>
 
@@ -190,5 +197,7 @@
 
     <script>document.write('<script src="trivia.js?v='+Date.now()+'"><\/script>')</script>
     <script>document.write('<script src="app.js?v='+Date.now()+'"><\/script>')</script>
+    <!-- ひとりで遊ぶときの CPU（計測ハーネスも同じものを使う） -->
+    <script>document.write('<script src="cpu.js?v='+Date.now()+'"><\/script>')</script>
   </body>
 </html>
