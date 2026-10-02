@@ -264,6 +264,7 @@ python -m http.server 8765 --bind 127.0.0.1
 | `runnerBoostOnOutRatio` | 0.2 | アウト時に残る走者へ与えるブースト（上限比）。絶対値で約31px/s |
 | `runnerBoostAreaTopRatio` | 0.75 | 守備モード中の画面分割。これより下だけが連打エリア |
 | `walkAdvanceSpeed` | 124 | フォアボール自動進塁（タップ無効なので別枠） |
+| `homeRunRunnerSpeedScale` | 3 | ホームランの周回の速さ。フォアボール進塁（124）の3倍 = 372px/s。連打でそれより速ければ連打の速さの3倍 |
 
 釣り合う速度は `runnerBoostPerTap × 連打回数/秒 ÷ runnerBoostDecayRate`。**`runnerBaseSpeed` / `runnerBoostPerTap` / `runnerBoostMax` を同じ倍率で掛ければ、全速度がその倍率になり、連打の手応えと避け性能の形は変わりません。** 減衰率は時定数なので、ここを触ると手応えごと変わります。
 

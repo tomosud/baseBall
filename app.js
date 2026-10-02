@@ -715,6 +715,8 @@ const physics = {
   // これは「止まって送球をかわす」ための速度で、走るための速度ではない。
   runnerBaseSpeed: 13,
   // フォアボール自動進塁の速度（px/s）: タップ無効なので待たせないよう速め
+  // ホームランの周回の速さ（フォアボール進塁の速さに対する倍率。連打で速ければそちら基準）
+  homeRunRunnerSpeedScale: 3,
   walkAdvanceSpeed: 124,
   // 走者ブースト: バッター側の連打1回あたりの加速量（px/s）。
   // 1タップで一歩ぶん蹴り出す感覚。連打の間隔がそのまま速度になる。
@@ -2457,6 +2459,7 @@ function playingGeom() {
     playingGeomCache.gen = playingGeomGeneration;
     playingGeomCache.surface = null;
     playingGeomCache.topWallY = null;
+    playingGeomCache.bottomWallY = null;
     playingGeomCache.bases = null;
     playingGeomCache.home = null;
     playingGeomCache.zone = null;
@@ -2971,10 +2974,14 @@ function updatePlayingRunners(dt) {
       continue;
     }
 
-    // フォアボール進塁はタップ無効のため速めの固定速度、それ以外は基本速度+連打ブースト
-    const moveSpeed = runner.fromWalk
+    // フォアボール進塁はタップ無効のため速めの固定速度、それ以外は基本速度+連打ブースト。
+    // ホームラン中はもう刺せないので、見ている時間を縮める（連打が無くても進塁の速さ × 倍率）。
+    const baseMoveSpeed = runner.fromWalk
       ? physics.walkAdvanceSpeed
       : physics.runnerBaseSpeed + playingState.runnerBoost;
+    const moveSpeed = playingState.isHomeRun
+      ? Math.max(baseMoveSpeed, physics.walkAdvanceSpeed) * physics.homeRunRunnerSpeedScale
+      : baseMoveSpeed;
     // 走った距離で足の運びを進める（速いほど回転が速くなる）
     runner.stride = (runner.stride || 0) + (moveSpeed * dt) / RUNNER_STRIDE_PIXELS;
     runner.progress += (moveSpeed * dt) / dist;
@@ -3244,6 +3251,19 @@ function getPlayingTopWallY() {
   return c.topWallY;
 }
 
+// 下の壁（盤面座標）。ふつうは盤面の下端。
+// 盤面が回っている裏の回は、盤面の下端が画面の上端になり HUD（リセット・BSO）の裏に隠れる。
+// そこに球が入ると拾えないので、HUD の手前を壁にする。
+function getPlayingBottomWallY() {
+  const c = playingGeom();
+  if (c.bottomWallY === null) {
+    c.bottomWallY = isPlayingFlipped()
+      ? getPlayingLocalRect(elements.playingStatusBar).top
+      : getPlayingSurfaceRect().height;
+  }
+  return c.bottomWallY;
+}
+
 // 上壁に達した打球がホームランに足りているかを 1.0 基準で返す。
 // 残りの飛距離（速度÷減衰）が、本塁〜上壁の距離の homeRunClearRatio 倍あれば 1 以上。
 // 盤面の大きさに対する比で見るので、画面の高さが変わっても難度が動かない。
@@ -3303,8 +3323,8 @@ function applyPlayingEdgeBounce(rect) {
         playingState.isDeepHit = true;
       }
     }
-  } else if (model.ballY >= rect.height - margin && model.velocityY > 0) {
-    model.ballY = rect.height - margin;
+  } else if (model.ballY >= getPlayingBottomWallY() - margin && model.velocityY > 0) {
+    model.ballY = getPlayingBottomWallY() - margin;
     model.velocityY *= -restitution;
     model.velocityX *= restitution;
     playSfx("wallBounce");
@@ -3701,7 +3721,7 @@ function animatePlaying(timeStamp) {
         const readyToRollBySpeed = playingState.currentSpeed <= physics.rollTriggerSpeed;
         const readyToRollByPosition =
           playingState.pitchJudged &&
-          (playingState.ballY >= rect.height - physics.rollTopBand ||
+          (playingState.ballY >= getPlayingBottomWallY() - physics.rollTopBand ||
             playingState.ballY <= physics.rollTopBand ||
             playingState.ballX <= physics.rollTopBand ||
             playingState.ballX >= rect.width - physics.rollTopBand);
