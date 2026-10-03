@@ -746,6 +746,8 @@ const physics = {
   // 持ったままでは当たらず、指の速さが落ちた瞬間（振り切ったところ）でそのまま投げられる。
   // 投げミスを拾い直して取り返せるようにしつつ、持って追いかけるだけでは解決させないため（走者の最高速 167px/s）
   fielderCarryMaxSpeed: 320,
+  // 送球（または持って運んだ球）が塁のこの距離（px）以内を通れば、その塁へ向かう走者はアウト
+  baseForceRadius: 22,
   // 守備が球を拾える距離（指と球の中心）。人の指は球の真上を正確に押せないので広めに取る
   fielderPickupRadius: 56,
   // 打球はこの速さ（px/s）まで落ちれば、転がっている途中でも拾える（止まるまで待たない）。
@@ -3203,37 +3205,28 @@ function renderPlayingRunners() {
   updatePlayingThrowTargets();
 }
 
-// 送球の的は塁ではなく走者。狙える走者に赤い点滅とリングを付ける。
+// 送球の的は塁。刺せる走者が向かっている塁を赤く点滅させる。走者は普通の色のまま。
 function updatePlayingThrowTargets() {
   const ringEls = [elements.playingRunnerRing0, elements.playingRunnerRing1,
                    elements.playingRunnerRing2, elements.playingRunnerRing3];
   const runnerEls = [elements.playingRunner0, elements.playingRunner1,
                      elements.playingRunner2, elements.playingRunner3];
-  // ホームラン中は打球が場外へ抜けていて守備が手を出せないので、狙える走者はいない
-  const canTag = !playingState.isHomeRun;
-  let anyTaggable = false;
+  runnerEls.forEach((el) => el.classList.remove("is-target"));
+  ringEls.forEach((el) => el.classList.add("is-hidden"));
 
-  runnerEls.forEach((el, index) => {
-    const runner = playingState.runners[index];
-    const taggable = canTag && !!runner && runner.state === "running" && !runner.fromWalk;
-    if (taggable) anyTaggable = true;
-    el.classList.toggle("is-target", taggable);
-
-    const ring = ringEls[index];
-    ring.classList.toggle("is-hidden", !taggable);
-    if (taggable) {
-      ring.style.left = `${runner.x}px`;
-      ring.style.top = `${runner.y}px`;
-    }
+  const targets = new Set();
+  for (const runner of playingState.runners) {
+    if (isForceableRunner(runner)) targets.add(runner.toBaseIndex);
+  }
+  [elements.playingBase0, elements.playingBase1, elements.playingBase2, elements.playingHomeBase].forEach((el, i) => {
+    el.classList.toggle("is-throw-target", targets.has(i));
   });
 
-  // 「走者に当てろ！」は狙える走者がいるときだけ出す
-  elements.playingTagLabel.classList.toggle("is-hidden", !anyTaggable);
+  // 「塁に投げろ！」は刺せる走者がいるときだけ出す
+  elements.playingTagLabel.classList.toggle("is-hidden", targets.size === 0);
 }
 
-// 走者に当てる判定の半径。走者スプライト（24x35px）はそのままで、判定だけ
-// 以前の 24px から 0.7 倍に絞ってある。輪（.runner-target-ring）も同じ 0.7 倍。
-// アウトはこの判定のみで成立する。塁に送球しても何も起きない。
+// （旧ルール）走者に当てる判定の半径。今は塁に送球してアウトを取るので使っていない（ハーネスの参照用に残す）
 const PLAYING_RUNNER_HIT_RADIUS = 17;
 
 // 点と線分の距離。送球は1フレームで大きく進むため、線分で走査して抜けを防ぐ。
@@ -3247,7 +3240,7 @@ function distancePointToSegment(px, py, ax, ay, bx, by) {
 }
 
 // アウト処理の共通ロジック（走者に送球が当たったときだけ呼ばれる）
-function applyRunnerTagOut(outRunner) {
+function applyRunnerTagOut(outRunner, at = null) {
   testLog("tagout", {
     x: outRunner.x,
     y: outRunner.y,
@@ -3256,7 +3249,8 @@ function applyRunnerTagOut(outRunner) {
     boost: playingState.runnerBoost,
   });
   outRunner.state = "out";
-  spawnRunnerTagBurst(outRunner.x, outRunner.y);
+  // 弾ける演出は塁の上（塁で刺した）
+  spawnRunnerTagBurst(at ? at.x : outRunner.x, at ? at.y : outRunner.y);
   renderPlayingRunners();
 
   // アウトランナー削除（少し後）— IDで絞り込むことでレースコンディションを防ぐ
@@ -3353,56 +3347,61 @@ function releaseCarriedBallAsThrow(vector = getPlayingPitcherReleaseVector()) {
   playingState.pitcherTrail = [];
 }
 
-// 持ったままの球が走っている走者に触れたらアウト（毎フレームと指の移動ごとに見る）
+// 持ったままの球を、走者より先に塁へ運んだらアウト（毎フレームと指の移動ごとに見る）
 function checkCarriedBallTagsRunners(prevX = playingState.ballX, prevY = playingState.ballY) {
   if (!isCarryingPickedBall() || playingState.carryBroken) return;
-  for (const runner of playingState.runners) {
-    if (runner.state !== "running" || runner.fromWalk) continue;
-    const dist = distancePointToSegment(runner.x, runner.y, prevX, prevY, playingState.ballX, playingState.ballY);
-    if (dist > PLAYING_RUNNER_HIT_RADIUS) continue;
-    playSfx("out");
-    applyRunnerTagOut(runner);
-    // 持ったまま当てるのは1回まで（続けて刺すには投げる）。走者がいなくなったら持っている指も解放する
-    playingState.carryBroken = true;
-    if (!hasActiveRunners()) {
-      playingState.pitcherPointerId = null;
-      updatePlayingMoundHold();
-    } else {
-      playingState.isResting = false;
-      elements.playingBall.classList.remove("is-resting");
-      showPlayingBall();
-    }
-    return;
+  const runner = findForcedRunnerAtBall(prevX, prevY);
+  if (!runner) return;
+  playSfx("out");
+  applyRunnerTagOut(runner, getRunnerTargetBase(runner));
+  // 持ったまま刺すのは1回まで（続けて刺すには投げる）。走者がいなくなったら持っている指も解放する
+  playingState.carryBroken = true;
+  if (!hasActiveRunners()) {
+    playingState.pitcherPointerId = null;
+    updatePlayingMoundHold();
+  } else {
+    playingState.isResting = false;
+    elements.playingBall.classList.remove("is-resting");
+    showPlayingBall();
   }
 }
 
-// 生きた送球が走っている走者に当たったらアウト。
+// 走者が向かっている塁（ホームは 3）の位置
+function getRunnerTargetBase(runner) {
+  const rect = getPlayingSurfaceRect();
+  const bases = getPlayingBasePositions(rect);
+  return runner.toBaseIndex < bases.length ? bases[runner.toBaseIndex] : getPlayingHomePlate(rect);
+}
+
+// 刺せる走者（打球で次の塁へ走っている走者。フォアボール・デッドボールの進塁とホームランは対象外）
+function isForceableRunner(runner) {
+  return !playingState.isHomeRun && runner.state === "running" && !runner.fromWalk;
+}
+
+// 球（prev → 今）が、走者が向かっている塁を通ったら、その走者はアウト（フォースアウト）。
+// 打てば走者は全員次の塁へ進むので、全部フォースプレーとして扱う。走者に当てても何も起きない。
+function findForcedRunnerAtBall(prevX, prevY) {
+  for (const runner of playingState.runners) {
+    if (!isForceableRunner(runner)) continue;
+    const base = getRunnerTargetBase(runner);
+    const dist = distancePointToSegment(base.x, base.y, prevX, prevY, playingState.ballX, playingState.ballY);
+    if (dist <= physics.baseForceRadius) return runner;
+  }
+  return null;
+}
+
+// 生きた送球が、走者より先に塁に届いたらアウト。
 // prevX/prevY からの線分で判定するので、速い送球でもすり抜けない。
 function checkPlayingBallHitsRunners(prevX, prevY) {
   if (!playingState.isBallActive || playingState.isHit) return false;
-  // 拾って投げた「生きた送球」だけが走者を刺せる。
+  // 拾って投げた「生きた送球」だけが刺せる。
   // 壁に当たって跳ね返った球は、拾い直して投げ直すまでアウトを取れない。
   if (!playingState.throwIsLive) return false;
-  // 離した位置のすぐそばでは当たらない（走者の横まで運んで当てるのを防ぐ）
-  if (Math.hypot(playingState.ballX - playingState.throwReleaseX, playingState.ballY - playingState.throwReleaseY) < physics.fielderThrowMinTravel) {
-    return false;
-  }
-
-  for (const runner of playingState.runners) {
-    // 走っている走者だけが対象。塁上のセーフな走者とフォアボール進塁は当たらない。
-    if (runner.state !== "running" || runner.fromWalk) continue;
-
-    const dist = distancePointToSegment(
-      runner.x, runner.y, prevX, prevY, playingState.ballX, playingState.ballY,
-    );
-    if (dist > PLAYING_RUNNER_HIT_RADIUS) continue;
-
-    playSfx("out");
-    applyRunnerTagOut(runner);
-    return true;
-  }
-
-  return false;
+  const runner = findForcedRunnerAtBall(prevX, prevY);
+  if (!runner) return false;
+  playSfx("out");
+  applyRunnerTagOut(runner, getRunnerTargetBase(runner));
+  return true;
 }
 
 function reflectPlayingBallFromBat() {
@@ -3967,12 +3966,10 @@ function triggerDeadBall(hitX, hitY) {
   updatePlayingCall(DEAD_BALL_TEXT, "is-dead");
   playingState.nextPitchReadyAt = performance.now() + physics.scoreFlightMs + 300;
 
-  const pitchingTeam = gameState.isTop ? 1 : 0;
-  addRunForPitchingTeam();
-  playSfx("score");
+  // 野球と同じく、打者は1塁へ（フォアボールと同じ押し出しの進塁）。以前は投げた側に1点だった
+  advanceRunnersOnWalk();
+  resetAtBat();
   saveGameToDB();
-  flyScorePointToTeam(hitX, hitY, pitchingTeam, "+1");
-  if (shouldEndOnWalkoff() && !hasPendingHomeRunScores()) gameDoGameSet();
 
   // 指がまだ乗っていれば輪は復活する
   setTimeout(() => updateBatterFingerRing(), physics.scoreFlightMs);
@@ -4042,16 +4039,9 @@ function canStartPitchNow() {
 
 // タイミングの合図（文字ではなく盤面の要素で）:
 // - マウンド: 投げられない間は暗い（投げられるようになると明るく戻る）
-// - 塁: 走者が向かっている塁が光る（走者には「あそこまで」、守備には「あそこに着く前に」）
+// - 塁: 刺せる走者が向かっている塁が赤く点滅する（updatePlayingThrowTargets）
 function updatePlayingTimingCues() {
   elements.playingMound.classList.toggle("is-waiting", !canStartPitchNow() && playingState.pitcherPointerId === null);
-  const targets = new Set();
-  for (const r of playingState.runners) {
-    if (r.state === "running" && !playingState.isHomeRun) targets.add(r.toBaseIndex);
-  }
-  [elements.playingBase0, elements.playingBase1, elements.playingBase2, elements.playingHomeBase].forEach((el, i) => {
-    el.classList.toggle("is-runner-target", targets.has(i));
-  });
 }
 
 function animatePlaying(timeStamp) {

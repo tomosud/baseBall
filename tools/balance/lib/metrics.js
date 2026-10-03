@@ -27,7 +27,8 @@ export function gameMetrics(result) {
         m.pitches++;
         break;
       case "pitchmiss": m.pitchMiss++; break;
-      case "deadball": m.deadballs++; m.deadballRuns++; break;
+      // デッドボールは打者が1塁へ（四球と同じく打席を数える）。2026-10-03 までは守備側に1点だった
+      case "deadball": m.deadballs++; m.pa++; break;
       case "strike": if (e.swing) m.strikesSwing++; else m.strikesCalled++; break;
       case "ball": m.balls++; break;
       case "walk": m.pa++; m.walks++; break;
