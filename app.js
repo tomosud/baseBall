@@ -749,8 +749,6 @@ const physics = {
   // 持ったままでは当たらず、指の速さが落ちた瞬間（振り切ったところ）でそのまま投げられる。
   // 投げミスを拾い直して取り返せるようにしつつ、持って追いかけるだけでは解決させないため（走者の最高速 167px/s）
   fielderCarryMaxSpeed: 320,
-  // 送球（または持って運んだ球）が塁のこの距離（px）以内を通れば、その塁へ向かう走者はアウト
-  baseForceRadius: 22,
   // 守備が球を拾える距離（指と球の中心）。人の指は球の真上を正確に押せないので広めに取る
   fielderPickupRadius: 56,
   // 打球はこの速さ（px/s）まで落ちれば、転がっている途中でも拾える（止まるまで待たない）。
@@ -780,11 +778,10 @@ const physics = {
   walkAdvanceSpeed: 124,
   // 走者ブースト: バッター側の連打1回あたりの加速量（px/s）。
   // 1タップで一歩ぶん蹴り出す感覚。連打の間隔がそのまま速度になる。
-  // 塁で刺すルール（2026-10-03）に合わせて 43 → 61.5。中級同士で平均得点 2.9・アウト率 70%（tuneI-notes-20261003.md）
-  runnerBoostPerTap: 61.5,
+  // 2026-10-03 に塁で刺すルールに合わせて 61.5 にしたが、10-04 に走者に当てる方式へ戻したので 43 に戻す
+  runnerBoostPerTap: 43,
   // 走者ブーストの上限（px/s）: 基本13+上限154=最大167px/s
-  // 154 → 165。上限は秒6回以上の連打でしか効かず、上級の点の入りすぎだけを決める（180 だと上級同士 36 点）
-  runnerBoostMax: 165,
+  runnerBoostMax: 154,
   // 走者ブーストの減衰「率」（1/s）。速度に比例して落ちるので、
   //   ・連打を続ける限り 43 * 連打回数/s / 2.6 あたりで釣り合う（間隔が速いほど速い）
   //   ・やめると半減0.27秒で崩れる（守備の読みを外して避けられる）
@@ -3212,28 +3209,33 @@ function renderPlayingRunners() {
   updatePlayingThrowTargets();
 }
 
-// 送球の的は塁。刺せる走者が向かっている塁を赤く点滅させる。走者は普通の色のまま。
+// 送球の的は走者。狙える走者に赤い点滅とリングを付ける。
 function updatePlayingThrowTargets() {
   const ringEls = [elements.playingRunnerRing0, elements.playingRunnerRing1,
                    elements.playingRunnerRing2, elements.playingRunnerRing3];
   const runnerEls = [elements.playingRunner0, elements.playingRunner1,
                      elements.playingRunner2, elements.playingRunner3];
-  runnerEls.forEach((el) => el.classList.remove("is-target"));
-  ringEls.forEach((el) => el.classList.add("is-hidden"));
+  let anyTaggable = false;
 
-  const targets = new Set();
-  for (const runner of playingState.runners) {
-    if (isForceableRunner(runner)) targets.add(runner.toBaseIndex);
-  }
-  [elements.playingBase0, elements.playingBase1, elements.playingBase2, elements.playingHomeBase].forEach((el, i) => {
-    el.classList.toggle("is-throw-target", targets.has(i));
+  runnerEls.forEach((el, index) => {
+    const runner = playingState.runners[index];
+    const taggable = !!runner && isForceableRunner(runner);
+    if (taggable) anyTaggable = true;
+    el.classList.toggle("is-target", taggable);
+
+    const ring = ringEls[index];
+    ring.classList.toggle("is-hidden", !taggable);
+    if (taggable) {
+      ring.style.left = `${runner.x}px`;
+      ring.style.top = `${runner.y}px`;
+    }
   });
 
-  // 「塁に投げろ！」は刺せる走者がいるときだけ出す
-  elements.playingTagLabel.classList.toggle("is-hidden", targets.size === 0);
+  // 「走者に当てろ！」は狙える走者がいるときだけ出す
+  elements.playingTagLabel.classList.toggle("is-hidden", !anyTaggable);
 }
 
-// 走者に当てる判定の半径（塁で刺すのと並ぶもう一つのアウトの取り方）。走者スプライト（24x35px）より小さい
+// 走者に当てる判定の半径。走者スプライト（24x35px）より小さい。アウトはこの判定のみで成立する
 const PLAYING_RUNNER_HIT_RADIUS = 17;
 
 // 点と線分の距離。送球は1フレームで大きく進むため、線分で走査して抜けを防ぐ。
@@ -3354,7 +3356,7 @@ function releaseCarriedBallAsThrow(vector = getPlayingPitcherReleaseVector()) {
   playingState.pitcherTrail = [];
 }
 
-// 持ったままの球を、走者より先に塁へ運ぶか、走者に当てたらアウト（毎フレームと指の移動ごとに見る）
+// 持ったままの球を走者に当てたらアウト（毎フレームと指の移動ごとに見る）
 function checkCarriedBallTagsRunners(prevX = playingState.ballX, prevY = playingState.ballY) {
   if (!isCarryingPickedBall() || playingState.carryBroken) return;
   const hit = findForcedRunnerAtBall(prevX, prevY);
@@ -3373,29 +3375,16 @@ function checkCarriedBallTagsRunners(prevX = playingState.ballX, prevY = playing
   }
 }
 
-// 走者が向かっている塁（ホームは 3）の位置
-function getRunnerTargetBase(runner) {
-  const rect = getPlayingSurfaceRect();
-  const bases = getPlayingBasePositions(rect);
-  return runner.toBaseIndex < bases.length ? bases[runner.toBaseIndex] : getPlayingHomePlate(rect);
-}
-
 // 刺せる走者（打球で次の塁へ走っている走者。フォアボール・デッドボールの進塁とホームランは対象外）
 function isForceableRunner(runner) {
   return !playingState.isHomeRun && runner.state === "running" && !runner.fromWalk;
 }
 
-// 球（prev → 今）でアウトになる走者を探す。アウトの取り方は2つ:
-// - 走者が向かっている塁を球が通る（フォースアウト。打てば走者は全員進むので全部フォースプレー）
-// - 走っている走者に球が当たる（2026-10-04 に復活）
-// 返り値の at は弾ける演出の位置（塁か走者）。
+// 球（prev → 今）が当たった走者を探す。アウトは走っている走者に球を当てたときだけ。
+// （2026-10-03 に塁で刺す方式を試したが、10-04 に廃止して走者に当てる方式へ戻した）
 function findForcedRunnerAtBall(prevX, prevY) {
   for (const runner of playingState.runners) {
     if (!isForceableRunner(runner)) continue;
-    const base = getRunnerTargetBase(runner);
-    if (distancePointToSegment(base.x, base.y, prevX, prevY, playingState.ballX, playingState.ballY) <= physics.baseForceRadius) {
-      return { runner, at: base };
-    }
     if (distancePointToSegment(runner.x, runner.y, prevX, prevY, playingState.ballX, playingState.ballY) <= PLAYING_RUNNER_HIT_RADIUS) {
       return { runner, at: { x: runner.x, y: runner.y } };
     }
@@ -3403,7 +3392,7 @@ function findForcedRunnerAtBall(prevX, prevY) {
   return null;
 }
 
-// 生きた送球が、走者より先に塁に届いたらアウト。
+// 生きた送球が走っている走者に当たったらアウト。
 // prevX/prevY からの線分で判定するので、速い送球でもすり抜けない。
 function checkPlayingBallHitsRunners(prevX, prevY) {
   if (!playingState.isBallActive || playingState.isHit) return false;
@@ -4052,9 +4041,16 @@ function canStartPitchNow() {
 
 // タイミングの合図（文字ではなく盤面の要素で）:
 // - マウンド: 投げられない間は暗い（投げられるようになると明るく戻る）
-// - 塁: 刺せる走者が向かっている塁が赤く点滅する（updatePlayingThrowTargets）
+// - 塁: 走者が向かっている塁が光る（走者には「あそこまで」、守備には「あそこに着く前に」）
 function updatePlayingTimingCues() {
   elements.playingMound.classList.toggle("is-waiting", !canStartPitchNow() && playingState.pitcherPointerId === null);
+  const targets = new Set();
+  for (const r of playingState.runners) {
+    if (r.state === "running" && !playingState.isHomeRun) targets.add(r.toBaseIndex);
+  }
+  [elements.playingBase0, elements.playingBase1, elements.playingBase2, elements.playingHomeBase].forEach((el, i) => {
+    el.classList.toggle("is-runner-target", targets.has(i));
+  });
 }
 
 function animatePlaying(timeStamp) {

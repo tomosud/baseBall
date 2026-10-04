@@ -215,7 +215,7 @@
       const a = rand() * Math.PI * 2, rr = rand() * m.centerRadius;
       const start = { x: m.x + Math.cos(a) * rr, y: m.y + Math.sin(a) * rr };
       let target;
-      // デッドボールは打者の出塁になったので、指を狙うことはしない（deadballProb は旧ルール用）
+      // デッドボールは打者の出塁なので、指を狙うことはしない（deadballProb は旧ルール用）
       if (false && S.batterPointerId !== null && rand() < k.deadballProb) {
         target = { x: S.batterFingerX, y: S.batterFingerY };
       } else {
@@ -265,48 +265,70 @@
       this.throwAtRunner();
     }
     // 送球の到達: 距離(t) = v0/drag * (1 - e^{-drag t})。速度と減衰は fielderThrowSpeedFactor 倍。
-    // 刺すのは塁（走者が着く前に、その走者が向かっている塁へ球を届ける）。
-    // 届く塁のうち、いちばん先の走者（ホームに近い）を選ぶ。近ければ投げずに持って運ぶ。
     throwAtRunner() {
       const k = this.k;
       const factor = P.fielderThrowSpeedFactor;
       const drag = P.battingHitDragPerSecond * factor;
       const v0max = P.maxForwardSpeed * Math.tanh(4) * factor * 0.97;
       const dragFrames = 3;
-      const lead = (dragFrames + 1) * DT;
+      const leadFrames = dragFrames + 1;
       const pick = { x: S.ballX, y: S.ballY };
-      const carrySpeed = REPO_STEP * 60;
       let best = null;
       for (const r of runningRunners()) {
-        const base = geom.bases4[r.toBaseIndex];
-        const dist = Math.hypot(base.x - r.fromX, base.y - r.fromY);
-        const remain = (1 - r.progress) * dist;
-        let v = P.runnerBaseSpeed + S.runnerBoost;
-        v *= Math.max(0.2, 1 + gauss() * k.leadSigma); // 走者の速さの読み違い
-        const runnerTime = remain / Math.max(v, 1);
-        const d = Math.hypot(base.x - pick.x, base.y - pick.y);
-        let time = Infinity, carry = false;
-        if (d <= 60) { time = d / carrySpeed; carry = true; }
-        else if (d * drag < v0max * 0.98) time = lead - Math.log(1 - (d * drag) / v0max) / drag;
-        if (time >= runnerTime) continue; // 間に合わない
-        if (!best || r.toBaseIndex > best.runner.toBaseIndex) best = { runner: r, base, carry, d };
+        const target = geom.bases4[r.toBaseIndex];
+        const dx = target.x - r.fromX, dy = target.y - r.fromY;
+        const dist = Math.hypot(dx, dy);
+        const ux = dx / dist, uy = dy / dist;
+        let v = r.fromWalk ? P.walkAdvanceSpeed : P.runnerBaseSpeed + S.runnerBoost;
+        if (k.leadModel === "current") v = 0; // 初級: 今いる場所を狙う
+        v *= 1 + gauss() * k.leadSigma;
+        const s0 = r.progress * dist + v * (leadFrames * DT);
+        // 送球は離した位置から fielderThrowMinTravel 以上飛ばないと当たらない。
+        // 当てる点が近すぎるときは、人と同じように球を持ったまま下がってから投げる。
+        const minTravel = (P.fielderThrowMinTravel || 0) + 20;
+        for (let t = 0.15; t <= 3; t += DT) {
+          let release = pick, repoFrames = 0;
+          let s = s0 + v * t;
+          let px = r.fromX + ux * s, py = r.fromY + uy * s;
+          if (Math.hypot(px - pick.x, py - pick.y) < minTravel) {
+            // 走者から離れる向き（当てる点 → 拾った位置）へ下がる
+            let ax = pick.x - px, ay = pick.y - py;
+            const al = Math.hypot(ax, ay);
+            if (al < 1) { ax = -ux; ay = -uy; } else { ax /= al; ay /= al; }
+            release = { x: clamp(px + ax * (minTravel + 5), 20, geom.width - 20), y: clamp(py + ay * (minTravel + 5), geom.topWallY + 20, geom.height - 20) };
+            repoFrames = Math.ceil(Math.hypot(release.x - pick.x, release.y - pick.y) / REPO_STEP);
+            s = s0 + v * (t + repoFrames * DT);
+            px = r.fromX + ux * s; py = r.fromY + uy * s;
+          }
+          if (s >= dist) break; // 着いてセーフになる
+          const d = Math.hypot(px - release.x, py - release.y) || 1;
+          if (d < minTravel - 15) continue;
+          const v0 = (d * drag) / (1 - Math.exp(-drag * t));
+          if (v0 <= v0max) {
+            if (!best || t < best.t) best = { t, px, py, v0, runner: r, release, repoFrames };
+            break;
+          }
+        }
       }
-      if (!best) { log("fielder-hold", { runners: runningRunners().length, boost: S.runnerBoost }); return; } // 間に合う塁がない → 投げずに待つ
-      log("fielder-throw", { toBase: best.runner.toBaseIndex, carry: best.carry, progress: best.runner.progress, boost: S.runnerBoost });
+      if (!best) { log("fielder-hold", { runners: runningRunners().length, boost: S.runnerBoost }); return; } // 刺せる走者がいない → 投げずに待つ
+      log("fielder-throw", { tInt: best.t, v0: best.v0, toBase: best.runner.toBaseIndex, progress: best.runner.progress, boost: S.runnerBoost });
+      const aim = { x: best.px + gauss() * k.aimSigma, y: best.py + gauss() * k.aimSigma };
+      // 必要球速 → スワイプ速度（compress の逆関数）。上限張り付きは atanh の発散を避ける。
+      const ratio = clamp(best.v0 / factor / P.maxForwardSpeed, 0.05, 0.995);
+      const swipe = P.maxForwardSpeed * Math.atanh(ratio);
       this.threwThisPlay = true;
-      if (best.carry) {
-        // 持ったまま塁へ運ぶ（ゲーム側の「持って動かせる速さ」より遅く）
-        const n = Math.max(1, Math.ceil(best.d / REPO_STEP));
+      const throwGesture = buildSwipe(best.release, aim, Math.max(swipe, 300), dragFrames, 0, PID.pitcher);
+      if (best.repoFrames > 0) {
+        // 拾う → 持ったまま下がる → 投げる
         const steps = [{ type: "pointerdown", x: pick.x, y: pick.y }];
-        for (let i = 1; i <= n; i++) steps.push({ type: "pointermove", x: pick.x + (best.base.x - pick.x) * (i / n), y: pick.y + (best.base.y - pick.y) * (i / n) });
-        steps.push({ type: "pointerup", x: best.base.x, y: best.base.y });
-        this.gesture = new Gesture(PID.pitcher, steps);
-        return;
+        for (let i = 1; i <= best.repoFrames; i++) {
+          const f = i / best.repoFrames;
+          steps.push({ type: "pointermove", x: pick.x + (best.release.x - pick.x) * f, y: pick.y + (best.release.y - pick.y) * f });
+        }
+        const [, ...rest] = throwGesture.steps; // 先頭の pointerdown は不要（もう押している）
+        throwGesture.steps = [...steps, ...rest];
       }
-      const aim = { x: best.base.x + gauss() * k.aimSigma, y: best.base.y + gauss() * k.aimSigma };
-      // 速く投げる（compress の逆関数で、上限の 9 割の球速になるスワイプ）
-      const swipe = P.maxForwardSpeed * Math.atanh(0.9);
-      this.gesture = buildSwipe(pick, aim, swipe, dragFrames, 0, PID.pitcher);
+      this.gesture = throwGesture;
     }
   }
 
@@ -429,8 +451,7 @@
       const cue = (pickedNow && !this.lastPickup) || throwCount !== this.lastThrowCount;
       this.lastPickup = pickedNow;
       this.lastThrowCount = throwCount;
-      // 塁で刺すルールでは止まっても得がないので、よけない（dodgeProb は旧ルール用）
-      if (false && cue && k.dodgeProb > 0 && rand() < k.dodgeProb) {
+      if (cue && k.dodgeProb > 0 && rand() < k.dodgeProb) {
         const start = now() + k.dodgeReact;
         this.pauseUntil = Math.max(this.pauseUntil, start + k.dodgeMs);
         this.pauseFrom = start;

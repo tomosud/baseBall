@@ -1345,21 +1345,16 @@ button {
   pointer-events: none;
 }
 
-/* 投げるべき塁（刺せる走者が向かっている塁）。赤く点滅させる */
-.playing-base.is-throw-target {
-  width: 26px;
-  height: 26px;
-  margin-left: -13px;
-  margin-top: -13px;
-  border: 2px solid #ff3b30;
-  background: rgba(255, 59, 48, 0.3);
-  box-shadow: 0 0 14px rgba(255, 59, 48, 0.8);
-  animation: throw-target-base 0.34s linear infinite;
+/* 走者が向かっている塁 */
+.playing-base.is-runner-target {
+  border: 2px solid rgba(255, 214, 10, 0.9);
+  box-shadow: 0 0 10px rgba(255, 214, 10, 0.6);
+  animation: runner-target-base 0.7s ease-in-out infinite alternate;
 }
 
-@keyframes throw-target-base {
-  0%, 50%   { opacity: 1; }
-  51%, 100% { opacity: 0.35; }
+@keyframes runner-target-base {
+  from { opacity: 0.55; }
+  to   { opacity: 1; }
 }
 
 /* ファウルの球（放物線の演出用の複製） */
