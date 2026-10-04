@@ -73,7 +73,7 @@ try {
     await startGame(page, 3);
   }
   await page.evaluate(TOUCH_OVERLAY);
-  await page.evaluate((cfg) => window.__yakyuBots.start(cfg), { teams: { blue: BLUE, red: RED }, batLead: 0.10 });
+  await page.evaluate((cfg) => window.__yakyuBots.start(cfg), { teams: { blue: BLUE, red: RED }, batLead: 0.14 });
   for (let t = 0; t < SKIP * 1000; t += 2000) await runFor(page, 2000);
 
   const frames = Math.round(SECONDS * FPS);

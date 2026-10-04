@@ -408,7 +408,7 @@ function startCpuIfSolo() {
     return;
   }
   // 打者の振り始めリードは run-baseline.js の既定（校正値）と同じ。タイミングのずれの中央値が 0 になる値
-  if (gameState.solo) bots.start({ teams: { blue: null, red: gameState.solo }, batLead: 0.10 });
+  if (gameState.solo) bots.start({ teams: { blue: null, red: gameState.solo }, batLead: 0.14 });
   else if (bots.running) bots.stop();
 }
 
@@ -709,14 +709,17 @@ const physics = {
   // これ以上の impulse（圧縮前）で「振りが足りている」とみなす。下回ると比例して弱くなる
   batFullSwingImpulse: 500,
   // タイミングのずれ（秒）: この範囲は満点、そこから batTimingFalloff 秒かけて batTimingFloor まで下がる。
-  // 満点の幅は 15ms → 10ms（上級同士の得点 56 → 27、中級同士は変わらず）
-  batTimingPerfect: 0.010,
+  // 満点の幅は 15ms → 10ms（ボットの上級同士の得点 56 → 27）→ 人同士で打てなすぎたので 15ms に戻した（2026-10-04）
+  batTimingPerfect: 0.015,
+  // ジャストの中心（秒、負 = 早め）。2026-10-04 人同士で「早すぎ・ファウルばかり」だったので 0 → -0.04
+  batTimingCenter: -0.04,
   batTimingFalloff: 0.045,
   batTimingFloor: 0.3,
   // ホームランに必要なタイミング係数（1 = 満点の範囲内のときだけ）
   homeRunTimingFactor: 1,
   // タイミングのずれ batTimingAngleRef 秒ごとに打球の向きを batTimingAngleDeg 度振る（早い = 左、遅い = 右）
-  batTimingAngleRef: 0.05,
+  // 0.05 → 0.08（人同士でファウルが多すぎた）。中心から 75ms 前後ずれるとファウル
+  batTimingAngleRef: 0.08,
   batTimingAngleDeg: 25,
   // ---- ファウル ----
   // 当たった位置から、本塁〜1塁・3塁の線と同じ角度で広がる扇の内側がフェア。打球が塁の高さに届く前に扇の外へ出たらファウル。
@@ -1377,7 +1380,9 @@ function getSwingTimingError(model) {
     : physics.battingSwingDuration + (physics.battingSwingLingerDuration - (model.swingLingerTimer || 0));
   const batToSquare = tSquare - now;
   const ballToLine = model.velocityY > 1 ? (model.batY - model.ballY) / model.velocityY : 0;
-  return batToSquare - ballToLine;
+  // 人は「真横で捉える」より早めに振るのが自然（ボットも接触だけを狙うと約 60ms 早い）。
+  // その自然なずれを「ジャスト」の中心にする（batTimingCenter）。
+  return batToSquare - ballToLine - physics.batTimingCenter;
 }
 
 // タイミングのずれ → 0〜1 の係数（満点の範囲は 1、外れるほど下がって batTimingFloor で止まる）
@@ -3228,7 +3233,7 @@ function updatePlayingThrowTargets() {
   elements.playingTagLabel.classList.toggle("is-hidden", targets.size === 0);
 }
 
-// （旧ルール）走者に当てる判定の半径。今は塁に送球してアウトを取るので使っていない（ハーネスの参照用に残す）
+// 走者に当てる判定の半径（塁で刺すのと並ぶもう一つのアウトの取り方）。走者スプライト（24x35px）より小さい
 const PLAYING_RUNNER_HIT_RADIUS = 17;
 
 // 点と線分の距離。送球は1フレームで大きく進むため、線分で走査して抜けを防ぐ。
@@ -3349,13 +3354,13 @@ function releaseCarriedBallAsThrow(vector = getPlayingPitcherReleaseVector()) {
   playingState.pitcherTrail = [];
 }
 
-// 持ったままの球を、走者より先に塁へ運んだらアウト（毎フレームと指の移動ごとに見る）
+// 持ったままの球を、走者より先に塁へ運ぶか、走者に当てたらアウト（毎フレームと指の移動ごとに見る）
 function checkCarriedBallTagsRunners(prevX = playingState.ballX, prevY = playingState.ballY) {
   if (!isCarryingPickedBall() || playingState.carryBroken) return;
-  const runner = findForcedRunnerAtBall(prevX, prevY);
-  if (!runner) return;
+  const hit = findForcedRunnerAtBall(prevX, prevY);
+  if (!hit) return;
   playSfx("out");
-  applyRunnerTagOut(runner, getRunnerTargetBase(runner));
+  applyRunnerTagOut(hit.runner, hit.at);
   // 持ったまま刺すのは1回まで（続けて刺すには投げる）。走者がいなくなったら持っている指も解放する
   playingState.carryBroken = true;
   if (!hasActiveRunners()) {
@@ -3380,14 +3385,20 @@ function isForceableRunner(runner) {
   return !playingState.isHomeRun && runner.state === "running" && !runner.fromWalk;
 }
 
-// 球（prev → 今）が、走者が向かっている塁を通ったら、その走者はアウト（フォースアウト）。
-// 打てば走者は全員次の塁へ進むので、全部フォースプレーとして扱う。走者に当てても何も起きない。
+// 球（prev → 今）でアウトになる走者を探す。アウトの取り方は2つ:
+// - 走者が向かっている塁を球が通る（フォースアウト。打てば走者は全員進むので全部フォースプレー）
+// - 走っている走者に球が当たる（2026-10-04 に復活）
+// 返り値の at は弾ける演出の位置（塁か走者）。
 function findForcedRunnerAtBall(prevX, prevY) {
   for (const runner of playingState.runners) {
     if (!isForceableRunner(runner)) continue;
     const base = getRunnerTargetBase(runner);
-    const dist = distancePointToSegment(base.x, base.y, prevX, prevY, playingState.ballX, playingState.ballY);
-    if (dist <= physics.baseForceRadius) return runner;
+    if (distancePointToSegment(base.x, base.y, prevX, prevY, playingState.ballX, playingState.ballY) <= physics.baseForceRadius) {
+      return { runner, at: base };
+    }
+    if (distancePointToSegment(runner.x, runner.y, prevX, prevY, playingState.ballX, playingState.ballY) <= PLAYING_RUNNER_HIT_RADIUS) {
+      return { runner, at: { x: runner.x, y: runner.y } };
+    }
   }
   return null;
 }
@@ -3399,10 +3410,10 @@ function checkPlayingBallHitsRunners(prevX, prevY) {
   // 拾って投げた「生きた送球」だけが刺せる。
   // 壁に当たって跳ね返った球は、拾い直して投げ直すまでアウトを取れない。
   if (!playingState.throwIsLive) return false;
-  const runner = findForcedRunnerAtBall(prevX, prevY);
-  if (!runner) return false;
+  const hit = findForcedRunnerAtBall(prevX, prevY);
+  if (!hit) return false;
   playSfx("out");
-  applyRunnerTagOut(runner, getRunnerTargetBase(runner));
+  applyRunnerTagOut(hit.runner, hit.at);
   return true;
 }
 

@@ -25,9 +25,9 @@ const INNINGS = Number(arg("innings", 3));
 const PARALLEL = Number(arg("parallel", 4));
 const SKILLS = arg("skills", "novice,mid,expert").split(",");
 const OUT = path.resolve(ROOT, arg("out", "docs/balance"));
-// 打者ボットの振り始めリード（秒）。タイミング方式（batPowerModel: "timing"）でずれの中央値が 0 になる値。
-// 旧方式（接触率が最大）では 0.16 だった。
-const BAT_LEAD = Number(arg("batLead", 0.10));
+// 打者ボットの振り始めリード（秒）。タイミング方式でずれの中央値がジャストの中心（batTimingCenter）になる値。
+// 旧方式（接触率が最大）では 0.16、中心 0 のときは 0.10 だった。
+const BAT_LEAD = Number(arg("batLead", 0.14));
 // 既定 35 はボット側の既定と同じ。2026-10-02 以前は引数がボットに届かず常に 35 で回っていたので、比較のため揃える。
 const BAT_SWEET = Number(arg("batSweet", 35));
 const LABEL = arg("label", "baseline");
