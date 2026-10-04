@@ -3468,23 +3468,30 @@ function checkPlayingFoul() {
   }
 }
 
-// ファウルの球が放物線を描いて場外へ飛んでいく演出（判定とは無関係の見た目だけ）。
-// 本物の球はその場で消し、同じ位置から複製を飛ばす。大きくなって小さくなる = 高く上がって落ちる。
-function spawnFoulBallFlight() {
+// ファウルの球が放物線を描いて、ファウルゾーン（暗くした菱形の外）を通って画面の外へ飛んでいく演出。
+// 判定とは無関係の見た目だけ。本物の球はその場で消し、同じ位置から複製を飛ばす。
+// 大きくなって小さくなる = 高く上がって落ちる。行き先は切れた側（左なら左の外、右なら右の外）。
+function spawnFoulBallFlight(reason) {
+  const rect = getPlayingSurfaceRect();
   const x = playingState.ballX, y = playingState.ballY;
-  let vx = playingState.velocityX, vy = playingState.velocityY;
-  const sp = Math.hypot(vx, vy);
-  if (sp < 1) { vx = 0; vy = 1; } else { vx /= sp; vy /= sp; }
-  const dist = 190;
+  let side;
+  if (reason === "left") side = -1;
+  else if (reason === "right") side = 1;
+  else side = (playingState.velocityX || 0) < 0 ? -1 : 1; // 後ろ・かすりは球の横向きの勢いで決める
+  // 画面の横の外、今より少し下（本塁側）へ。打球が上へ向かっていたぶんは山なりの頂点で表す
+  const endX = side < 0 ? -40 : rect.width + 40;
+  const endY = clamp(y + 60, 0, rect.height - 20);
+  const midX = (x + endX) / 2;
+  const midY = Math.min(y, endY) - 70;
   const el = document.createElement("div");
   el.className = "batting-ball foul-ball-flight";
   elements.playingSurface.appendChild(el);
-  const at = (k, scale) => `translate(${x + vx * dist * k}px, ${y + vy * dist * k}px) scale(${scale})`;
+  const at = (px, py, scale) => `translate(${px}px, ${py}px) scale(${scale})`;
   const anim = el.animate(
     [
-      { transform: at(0, 1), opacity: 1 },
-      { transform: at(0.5, 2.1), opacity: 1, offset: 0.45 },
-      { transform: at(1, 0.7), opacity: 0 },
+      { transform: at(x, y, 1), opacity: 1 },
+      { transform: at(midX, midY, 2.2), opacity: 1, offset: 0.45 },
+      { transform: at(endX, endY, 0.8), opacity: 0.2 },
     ],
     { duration: 1100, easing: "cubic-bezier(0.25, 0.6, 0.4, 1)" },
   );
@@ -3510,7 +3517,7 @@ function callPlayingFoul(reason) {
     gameState.strikes = Math.min(2, pre.strikes + 1); // 2ストライク後のファウルはカウントしない
   }
   playingState.preHit = null;
-  spawnFoulBallFlight();
+  spawnFoulBallFlight(reason);
   playingState.isHit = false;
   playingState.isHomeRun = false;
   playingState.runnerBoost = 0;
